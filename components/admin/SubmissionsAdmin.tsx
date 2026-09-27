@@ -16,13 +16,30 @@ const PRIMARY_KEY: Record<SubmissionTargetTable, string> = {
   brand_partnerships: "id",
 };
 
+interface PhotoPreview {
+  path: string;
+  url: string | null;
+}
+
 interface EnrichedSubmission {
   submission: Submission;
   current: Record<string, unknown> | null;
+  photoPreviews: PhotoPreview[];
 }
 
+function suggestedPhotosOf(submission: Submission): string[] {
+  return Array.isArray(submission.proposed_changes.suggested_photos)
+    ? (submission.proposed_changes.suggested_photos as string[])
+    : [];
+}
+
+// suggested_photos isn't a column on any target table -- it's routed to
+// submission-photos/ro_images separately in approve() -- and it's rendered
+// as thumbnails rather than in the plain-text diff table, so it's stripped
+// out of both.
 function buildPayload(submission: Submission): Record<string, unknown> {
   const payload: Record<string, unknown> = { ...submission.proposed_changes };
+  delete payload.suggested_photos;
   if (submission.target_table === "ro_profiles" && typeof payload.omc_id === "string") {
     payload.omc_id = Number(payload.omc_id);
   }
@@ -54,11 +71,22 @@ export default function SubmissionsAdmin({ onCountChange }: { onCountChange?: (c
 
     const enriched = await Promise.all(
       submissions.map(async (s) => {
-        if (!s.target_record_id) return { submission: s, current: null };
-        const pk = PRIMARY_KEY[s.target_table];
-        const idValue = s.target_table === "brand_partnerships" ? Number(s.target_record_id) : s.target_record_id;
-        const { data: current } = await supabase.from(s.target_table).select("*").eq(pk, idValue).maybeSingle();
-        return { submission: s, current: current as Record<string, unknown> | null };
+        let current: Record<string, unknown> | null = null;
+        if (s.target_record_id) {
+          const pk = PRIMARY_KEY[s.target_table];
+          const idValue = s.target_table === "brand_partnerships" ? Number(s.target_record_id) : s.target_record_id;
+          const { data } = await supabase.from(s.target_table).select("*").eq(pk, idValue).maybeSingle();
+          current = data as Record<string, unknown> | null;
+        }
+
+        const paths = suggestedPhotosOf(s);
+        let photoPreviews: PhotoPreview[] = [];
+        if (paths.length > 0) {
+          const { data: signed } = await supabase.storage.from("submission-photos").createSignedUrls(paths, 3600);
+          photoPreviews = paths.map((path, i) => ({ path, url: signed?.[i]?.signedUrl ?? null }));
+        }
+
+        return { submission: s, current, photoPreviews };
       })
     );
     setRows(enriched);
@@ -97,6 +125,39 @@ export default function SubmissionsAdmin({ onCountChange }: { onCountChange?: (c
       setError(writeError.message);
       setBusyId(null);
       return;
+    }
+
+    const suggestedPhotos = suggestedPhotosOf(submission);
+    if (submission.target_table === "ro_profiles" && suggestedPhotos.length > 0) {
+      const outletId = submission.target_record_id ?? String(payload.id);
+      const { count } = await supabase
+        .from("ro_images")
+        .select("id", { count: "exact", head: true })
+        .eq("ro_id", outletId);
+      let nextSortOrder = count ?? 0;
+
+      for (const path of suggestedPhotos) {
+        const basename = path.split("/").pop() ?? path;
+        const destPath = `${outletId}/${Date.now()}-${nextSortOrder}-${basename}`;
+        const { error: copyError } = await supabase.storage
+          .from("submission-photos")
+          .copy(path, destPath, { destinationBucket: "ro-images" });
+        if (copyError) {
+          setError(`Failed to copy suggested photo: ${copyError.message}`);
+          setBusyId(null);
+          return;
+        }
+        const { data: publicUrl } = supabase.storage.from("ro-images").getPublicUrl(destPath);
+        const { error: imageError } = await supabase
+          .from("ro_images")
+          .insert({ ro_id: outletId, url: publicUrl.publicUrl, caption: null, sort_order: nextSortOrder });
+        if (imageError) {
+          setError(imageError.message);
+          setBusyId(null);
+          return;
+        }
+        nextSortOrder += 1;
+      }
     }
 
     const { error: statusError } = await supabase
@@ -146,7 +207,7 @@ export default function SubmissionsAdmin({ onCountChange }: { onCountChange?: (c
       ) : (
         <div className="flex flex-col gap-4">
           {rows.map((row) => {
-            const { submission, current } = row;
+            const { submission, current, photoPreviews } = row;
             const isNew = !submission.target_record_id;
             return (
               <div key={submission.id} className="bg-surface rounded-md shadow-card border border-border p-5">
@@ -158,7 +219,8 @@ export default function SubmissionsAdmin({ onCountChange }: { onCountChange?: (c
                     </p>
                     <p className="text-xs text-muted">
                       Submitted {new Date(submission.created_at).toLocaleString("en-IN")} by{" "}
-                      {submission.submitted_by.slice(0, 8)}…
+                      {submission.submitter_name || "—"}
+                      {submission.submitter_email ? ` (${submission.submitter_email})` : ""}
                     </p>
                   </div>
                 </div>
@@ -172,17 +234,39 @@ export default function SubmissionsAdmin({ onCountChange }: { onCountChange?: (c
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(submission.proposed_changes).map(([key, value]) => (
-                      <tr key={key} className="border-b border-border last:border-b-0">
-                        <td className="py-1 pr-2 text-muted">{key}</td>
-                        <td className="py-1 pr-2 text-muted">
-                          {isNew ? "—" : String(current?.[key] ?? "—")}
-                        </td>
-                        <td className="py-1">{Array.isArray(value) ? value.join(", ") || "—" : String(value ?? "—")}</td>
-                      </tr>
-                    ))}
+                    {Object.entries(submission.proposed_changes)
+                      .filter(([key]) => key !== "suggested_photos")
+                      .map(([key, value]) => (
+                        <tr key={key} className="border-b border-border last:border-b-0">
+                          <td className="py-1 pr-2 text-muted">{key}</td>
+                          <td className="py-1 pr-2 text-muted">
+                            {isNew ? "—" : String(current?.[key] ?? "—")}
+                          </td>
+                          <td className="py-1">{Array.isArray(value) ? value.join(", ") || "—" : String(value ?? "—")}</td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
+
+                {photoPreviews.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs text-muted mb-1">Suggested photos</p>
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                      {photoPreviews.map((p) => (
+                        <div key={p.path} className="rounded-sm overflow-hidden border border-border">
+                          {p.url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.url} alt="Suggested photo" className="w-full h-20 object-cover" />
+                          ) : (
+                            <div className="w-full h-20 flex items-center justify-center text-xs text-muted">
+                              Unavailable
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 mt-3">
                   <input

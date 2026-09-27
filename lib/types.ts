@@ -119,7 +119,9 @@ export interface Submission {
   target_table: SubmissionTargetTable;
   target_record_id: string | null;
   proposed_changes: Record<string, unknown>;
-  submitted_by: string;
+  submitted_by: string | null;
+  submitter_name: string | null;
+  submitter_email: string | null;
   created_at: string;
   status: SubmissionStatus;
   admin_notes: string | null;

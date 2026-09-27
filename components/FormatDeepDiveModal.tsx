@@ -5,7 +5,6 @@ import { Pencil } from "lucide-react";
 import Modal from "./Modal";
 import SourcedValue from "./SourcedValue";
 import SuggestEditModal, { type SuggestEditField } from "./SuggestEditModal";
-import { useUserRole } from "@/lib/useUserRole";
 import { formatInrRange, formatSqft, formatPct, formatMonths } from "@/lib/format";
 import type { FormatEconomics } from "@/lib/types";
 import type { TaxonomyFormat } from "@/lib/taxonomy";
@@ -36,7 +35,6 @@ const FORMAT_SUGGEST_FIELDS: SuggestEditField[] = [
 ];
 
 export default function FormatDeepDiveModal({ taxonomy, economics, onClose }: FormatDeepDiveModalProps) {
-  const { role } = useUserRole();
   const [suggesting, setSuggesting] = useState(false);
 
   return (
@@ -99,14 +97,12 @@ export default function FormatDeepDiveModal({ taxonomy, economics, onClose }: Fo
 
       {economics?.notes && <p className="text-sm text-muted mt-6 border-t border-border pt-4">{economics.notes}</p>}
 
-      {role === "contributor" && (
-        <button
-          onClick={() => setSuggesting(true)}
-          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-sm border border-border text-ink hover:bg-bg transition-colors mt-6"
-        >
-          <Pencil size={16} /> Suggest an edit
-        </button>
-      )}
+      <button
+        onClick={() => setSuggesting(true)}
+        className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-sm border border-border text-ink hover:bg-bg transition-colors mt-6"
+      >
+        <Pencil size={16} /> Suggest an edit
+      </button>
 
       {suggesting && (
         <SuggestEditModal

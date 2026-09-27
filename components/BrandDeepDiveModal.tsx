@@ -5,7 +5,6 @@ import { Pencil } from "lucide-react";
 import Modal from "./Modal";
 import SourcedValue from "./SourcedValue";
 import SuggestEditModal, { type SuggestEditField } from "./SuggestEditModal";
-import { useUserRole } from "@/lib/useUserRole";
 import { formatInr, formatPct } from "@/lib/format";
 import type { BrandPartnership } from "@/lib/types";
 
@@ -33,7 +32,6 @@ const BRAND_SUGGEST_FIELDS: SuggestEditField[] = [
 ];
 
 export default function BrandDeepDiveModal({ brand, onClose }: BrandDeepDiveModalProps) {
-  const { role } = useUserRole();
   const [suggesting, setSuggesting] = useState(false);
 
   const spaceRange =
@@ -95,14 +93,12 @@ export default function BrandDeepDiveModal({ brand, onClose }: BrandDeepDiveModa
         </a>
       )}
 
-      {role === "contributor" && (
-        <button
-          onClick={() => setSuggesting(true)}
-          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-sm border border-border text-ink hover:bg-bg transition-colors mt-4"
-        >
-          <Pencil size={16} /> Suggest an edit
-        </button>
-      )}
+      <button
+        onClick={() => setSuggesting(true)}
+        className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-sm border border-border text-ink hover:bg-bg transition-colors mt-4"
+      >
+        <Pencil size={16} /> Suggest an edit
+      </button>
 
       {suggesting && (
         <SuggestEditModal

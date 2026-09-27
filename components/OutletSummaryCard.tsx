@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Camera, LayoutTemplate, Pencil } from "lucide-react";
 import type { RoProfile } from "@/lib/types";
 import { SQM_TO_SQFT } from "@/lib/scoring";
 import { TAXONOMY_BY_CODE } from "@/lib/taxonomy";
-import { useUserRole } from "@/lib/useUserRole";
 import SpaceAllocationBar from "./SpaceAllocationBar";
 import PhotosModal from "./PhotosModal";
 import LayoutModal from "./LayoutModal";
@@ -17,27 +16,49 @@ const TYPE_LABEL: Record<RoProfile["type"], string> = {
   rural: "Rural Outlet",
 };
 
-const OUTLET_SUGGEST_FIELDS: SuggestEditField[] = [
-  { key: "name", label: "Name", type: "text" },
-  { key: "location", label: "Location (display)", type: "text" },
-  { key: "state", label: "State", type: "text" },
-  { key: "district", label: "District", type: "text" },
-  { key: "area", label: "Area", type: "text" },
-  { key: "ownership", label: "Ownership", type: "text" },
-  { key: "pincode", label: "Pincode", type: "text" },
-  { key: "plot_sqm", label: "Plot area (sqm)", type: "number" },
-  { key: "vacant_sqm", label: "Vacant area (sqm)", type: "number" },
-  { key: "existing_tenants", label: "Existing tenant format codes", type: "array" },
-  { key: "fuel_volume_kl_monthly", label: "Fuel volume (KL/month)", type: "number" },
-  { key: "vehicle_mix_2w_pct", label: "2-wheeler mix %", type: "number" },
-  { key: "vehicle_mix_4w_pct", label: "4-wheeler mix %", type: "number" },
-  { key: "vehicle_mix_cv_pct", label: "Commercial vehicle mix %", type: "number" },
-  { key: "source_note", label: "Source note", type: "textarea" },
+const OUTLET_TYPE_OPTIONS = [
+  { value: "urban", label: "Urban" },
+  { value: "highway", label: "Highway" },
+  { value: "rural", label: "Rural" },
 ];
 
-export default function OutletSummaryCard({ outlet, omcName }: { outlet: RoProfile; omcName: string | null }) {
+interface OutletSummaryCardProps {
+  outlet: RoProfile;
+  omcName: string | null;
+  omcs: { id: number; name: string }[];
+}
+
+export default function OutletSummaryCard({ outlet, omcName, omcs }: OutletSummaryCardProps) {
   const [modal, setModal] = useState<"photos" | "layout" | "suggest" | null>(null);
-  const { role } = useUserRole();
+
+  // latitude/longitude, sourced, demand_index and whitespace_index are
+  // deliberately left out here -- they're either backend/engine-internal
+  // inputs or an admin verification call, not facts a public, no-login
+  // visitor should see or suggest changes to. They're still editable in the
+  // admin form (OutletsAdmin.tsx).
+  const outletSuggestFields: SuggestEditField[] = useMemo(
+    () => [
+      { key: "name", label: "Name", type: "text" },
+      { key: "omc_id", label: "OMC", type: "select", options: omcs.map((o) => ({ value: String(o.id), label: o.name })) },
+      { key: "state", label: "State", type: "text" },
+      { key: "district", label: "District", type: "text" },
+      { key: "area", label: "Area", type: "text" },
+      { key: "location", label: "Location (display)", type: "text" },
+      { key: "pincode", label: "Pincode", type: "text" },
+      { key: "type", label: "Type", type: "select", options: OUTLET_TYPE_OPTIONS },
+      { key: "ownership", label: "Ownership", type: "text" },
+      { key: "plot_sqm", label: "Plot area (sqm)", type: "number" },
+      { key: "vacant_sqm", label: "Vacant area (sqm)", type: "number" },
+      { key: "existing_tenants", label: "Existing tenant format codes", type: "array" },
+      { key: "layout_diagram_url", label: "Layout diagram URL", type: "text" },
+      { key: "fuel_volume_kl_monthly", label: "Fuel volume (KL/month)", type: "number" },
+      { key: "vehicle_mix_2w_pct", label: "2-wheeler mix %", type: "number" },
+      { key: "vehicle_mix_4w_pct", label: "4-wheeler mix %", type: "number" },
+      { key: "vehicle_mix_cv_pct", label: "Commercial vehicle mix %", type: "number" },
+      { key: "source_note", label: "Source note", type: "textarea" },
+    ],
+    [omcs]
+  );
 
   const plotSqft = outlet.plot_sqm !== null ? outlet.plot_sqm * SQM_TO_SQFT : null;
   const vacantSqft = outlet.vacant_sqm !== null ? outlet.vacant_sqm * SQM_TO_SQFT : null;
@@ -66,6 +87,13 @@ export default function OutletSummaryCard({ outlet, omcName }: { outlet: RoProfi
             {TYPE_LABEL[outlet.type]}
           </span>
           {omcName && <span className="text-xs text-muted">{omcName}</span>}
+          <button
+            onClick={() => setModal("suggest")}
+            className="flex flex-col items-center gap-0.5 text-muted hover:text-navy transition-colors mt-1"
+          >
+            <Pencil size={16} />
+            <span className="text-[10px] leading-none whitespace-nowrap">Suggest an edit</span>
+          </button>
         </div>
       </div>
 
@@ -100,14 +128,6 @@ export default function OutletSummaryCard({ outlet, omcName }: { outlet: RoProfi
         >
           <LayoutTemplate size={16} /> Site layout
         </button>
-        {role === "contributor" && (
-          <button
-            onClick={() => setModal("suggest")}
-            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-sm border border-border text-ink hover:bg-bg transition-colors"
-          >
-            <Pencil size={16} /> Suggest an edit
-          </button>
-        )}
       </div>
 
       {modal === "photos" && (
@@ -126,7 +146,7 @@ export default function OutletSummaryCard({ outlet, omcName }: { outlet: RoProfi
           targetTable="ro_profiles"
           targetRecordId={outlet.id}
           currentValues={outlet as unknown as Record<string, unknown>}
-          fields={OUTLET_SUGGEST_FIELDS}
+          fields={outletSuggestFields}
           onClose={() => setModal(null)}
           onSubmitted={() => {}}
         />

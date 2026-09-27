@@ -47,7 +47,11 @@ export default async function OutletPage({ params }: OutletPageProps) {
 
   return (
     <div className="max-w-5xl mx-auto p-6 flex flex-col gap-6">
-      <OutletSummaryCard outlet={outlet as RoProfile} omcName={outletOmcName} />
+      <OutletSummaryCard
+        outlet={outlet as RoProfile}
+        omcName={outletOmcName}
+        omcs={(omcs ?? []) as { id: number; name: string }[]}
+      />
       <FormatList
         outlet={outlet as RoProfile}
         economics={(economics ?? []) as FormatEconomics[]}

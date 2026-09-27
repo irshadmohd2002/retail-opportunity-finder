@@ -180,17 +180,15 @@ export default function Sidebar({ outlets, omcs }: SidebarProps) {
       </div>
 
       <div className="mt-auto px-5 py-4 border-t border-white/15 text-xs text-white/60 flex flex-col gap-2">
+        <button onClick={() => setSuggestingNewOutlet(true)} className="text-left hover:text-white transition-colors">
+          + Suggest a new outlet
+        </button>
         {session ? (
           <>
             {role === "admin" && (
               <a href="/admin" className="hover:text-white transition-colors">
                 Admin: manage data
               </a>
-            )}
-            {role === "contributor" && (
-              <button onClick={() => setSuggestingNewOutlet(true)} className="text-left hover:text-white transition-colors">
-                + Suggest a new outlet
-              </button>
             )}
             <button onClick={handleSignOut} className="text-left hover:text-white transition-colors">
               Sign out{role === "contributor" ? " (contributor)" : ""}
