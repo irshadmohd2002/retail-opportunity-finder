@@ -47,6 +47,10 @@ function makeOutlet(overrides: Partial<RoProfile> = {}): RoProfile {
     updated_at: "2026-01-01",
     demand_index: 60,
     whitespace_index: 60,
+    omc_id: 1,
+    latitude: null,
+    longitude: null,
+    pincode: null,
     ...overrides,
   };
 }

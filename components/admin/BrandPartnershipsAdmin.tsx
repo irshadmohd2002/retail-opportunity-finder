@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { BrandPartnership } from "@/lib/types";
 import { TAXONOMY } from "@/lib/taxonomy";
+import { BRAND_PARTNERSHIPS_SCHEMA, fetchBrandPartnershipsDbContext } from "@/lib/csvSchemas";
 import Modal from "../Modal";
 import { TextField, NumberField, SelectField, CheckboxField, ArrayField } from "./fields";
+import CsvImport from "./CsvImport";
 
 type Draft = Omit<BrandPartnership, "id" | "created_at" | "last_verified"> & { id: number | null };
 
@@ -76,12 +78,19 @@ export default function BrandPartnershipsAdmin() {
     <div className="flex flex-col gap-4">
       <div className="flex justify-between items-center">
         <h2 className="font-semibold">Brand partnerships</h2>
-        <button
-          onClick={() => setDraft(BLANK)}
-          className="text-sm px-3 py-1.5 rounded-sm bg-navy text-white hover:opacity-90"
-        >
-          + Add brand
-        </button>
+        <div className="flex items-center gap-4">
+          <CsvImport
+            schema={BRAND_PARTNERSHIPS_SCHEMA}
+            fetchDbContext={fetchBrandPartnershipsDbContext}
+            onImported={load}
+          />
+          <button
+            onClick={() => setDraft(BLANK)}
+            className="text-sm px-3 py-1.5 rounded-sm bg-navy text-white hover:opacity-90"
+          >
+            + Add brand
+          </button>
+        </div>
       </div>
       {error && <p className="text-sm" style={{ color: "var(--navy)" }}>{error}</p>}
 

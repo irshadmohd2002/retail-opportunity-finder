@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Camera, LayoutTemplate } from "lucide-react";
+import { Camera, LayoutTemplate, Pencil } from "lucide-react";
 import type { RoProfile } from "@/lib/types";
 import { SQM_TO_SQFT } from "@/lib/scoring";
 import { TAXONOMY_BY_CODE } from "@/lib/taxonomy";
+import { useUserRole } from "@/lib/useUserRole";
 import SpaceAllocationBar from "./SpaceAllocationBar";
 import PhotosModal from "./PhotosModal";
 import LayoutModal from "./LayoutModal";
+import SuggestEditModal, { type SuggestEditField } from "./SuggestEditModal";
 
 const TYPE_LABEL: Record<RoProfile["type"], string> = {
   urban: "Urban Outlet",
@@ -15,8 +17,27 @@ const TYPE_LABEL: Record<RoProfile["type"], string> = {
   rural: "Rural Outlet",
 };
 
-export default function OutletSummaryCard({ outlet }: { outlet: RoProfile }) {
-  const [modal, setModal] = useState<"photos" | "layout" | null>(null);
+const OUTLET_SUGGEST_FIELDS: SuggestEditField[] = [
+  { key: "name", label: "Name", type: "text" },
+  { key: "location", label: "Location (display)", type: "text" },
+  { key: "state", label: "State", type: "text" },
+  { key: "district", label: "District", type: "text" },
+  { key: "area", label: "Area", type: "text" },
+  { key: "ownership", label: "Ownership", type: "text" },
+  { key: "pincode", label: "Pincode", type: "text" },
+  { key: "plot_sqm", label: "Plot area (sqm)", type: "number" },
+  { key: "vacant_sqm", label: "Vacant area (sqm)", type: "number" },
+  { key: "existing_tenants", label: "Existing tenant format codes", type: "array" },
+  { key: "fuel_volume_kl_monthly", label: "Fuel volume (KL/month)", type: "number" },
+  { key: "vehicle_mix_2w_pct", label: "2-wheeler mix %", type: "number" },
+  { key: "vehicle_mix_4w_pct", label: "4-wheeler mix %", type: "number" },
+  { key: "vehicle_mix_cv_pct", label: "Commercial vehicle mix %", type: "number" },
+  { key: "source_note", label: "Source note", type: "textarea" },
+];
+
+export default function OutletSummaryCard({ outlet, omcName }: { outlet: RoProfile; omcName: string | null }) {
+  const [modal, setModal] = useState<"photos" | "layout" | "suggest" | null>(null);
+  const { role } = useUserRole();
 
   const plotSqft = outlet.plot_sqm !== null ? outlet.plot_sqm * SQM_TO_SQFT : null;
   const vacantSqft = outlet.vacant_sqm !== null ? outlet.vacant_sqm * SQM_TO_SQFT : null;
@@ -29,17 +50,23 @@ export default function OutletSummaryCard({ outlet }: { outlet: RoProfile }) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="font-serif-display font-semibold text-2xl text-navy">{outlet.name}</h1>
-          <p className="text-muted text-sm mt-1">{outlet.location}</p>
+          <p className="text-muted text-sm mt-1">
+            {outlet.location}
+            {outlet.pincode ? ` – ${outlet.pincode}` : ""}
+          </p>
           {!outlet.sourced && (
             <p className="text-xs text-muted italic mt-1">Profile data not yet verified against a source</p>
           )}
         </div>
-        <span
-          className="text-xs font-medium px-2.5 py-1 rounded-sm shrink-0"
-          style={{ background: "var(--copper-soft)", color: "var(--navy-deep)" }}
-        >
-          {TYPE_LABEL[outlet.type]}
-        </span>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <span
+            className="text-xs font-medium px-2.5 py-1 rounded-sm"
+            style={{ background: "var(--copper-soft)", color: "var(--navy-deep)" }}
+          >
+            {TYPE_LABEL[outlet.type]}
+          </span>
+          {omcName && <span className="text-xs text-muted">{omcName}</span>}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
@@ -73,6 +100,14 @@ export default function OutletSummaryCard({ outlet }: { outlet: RoProfile }) {
         >
           <LayoutTemplate size={16} /> Site layout
         </button>
+        {role === "contributor" && (
+          <button
+            onClick={() => setModal("suggest")}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-sm border border-border text-ink hover:bg-bg transition-colors"
+          >
+            <Pencil size={16} /> Suggest an edit
+          </button>
+        )}
       </div>
 
       {modal === "photos" && (
@@ -83,6 +118,17 @@ export default function OutletSummaryCard({ outlet }: { outlet: RoProfile }) {
           outletName={outlet.name}
           layoutDiagramUrl={outlet.layout_diagram_url}
           onClose={() => setModal(null)}
+        />
+      )}
+      {modal === "suggest" && (
+        <SuggestEditModal
+          title={`Suggest an edit — ${outlet.name}`}
+          targetTable="ro_profiles"
+          targetRecordId={outlet.id}
+          currentValues={outlet as unknown as Record<string, unknown>}
+          fields={OUTLET_SUGGEST_FIELDS}
+          onClose={() => setModal(null)}
+          onSubmitted={() => {}}
         />
       )}
     </div>

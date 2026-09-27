@@ -1,7 +1,11 @@
 "use client";
 
+import { useState } from "react";
+import { Pencil } from "lucide-react";
 import Modal from "./Modal";
 import SourcedValue from "./SourcedValue";
+import SuggestEditModal, { type SuggestEditField } from "./SuggestEditModal";
+import { useUserRole } from "@/lib/useUserRole";
 import { formatInrRange, formatSqft, formatPct, formatMonths } from "@/lib/format";
 import type { FormatEconomics } from "@/lib/types";
 import type { TaxonomyFormat } from "@/lib/taxonomy";
@@ -14,7 +18,27 @@ interface FormatDeepDiveModalProps {
 
 const PHASE2_NOTE = "Real unit-economics data is a Phase 2 item, pending outlet-level data collection.";
 
+const FORMAT_SUGGEST_FIELDS: SuggestEditField[] = [
+  { key: "space_sqft", label: "Space (sqft)", type: "number" },
+  { key: "space_sourced", label: "Space sourced/verified", type: "boolean" },
+  { key: "space_source_note", label: "Space source note", type: "textarea" },
+  { key: "capex_min_inr", label: "Capex min (INR)", type: "number" },
+  { key: "capex_max_inr", label: "Capex max (INR)", type: "number" },
+  { key: "capex_sourced", label: "Capex sourced/verified", type: "boolean" },
+  { key: "capex_source_note", label: "Capex source note", type: "textarea" },
+  { key: "revenue_monthly_inr", label: "Typical monthly revenue (INR)", type: "number" },
+  { key: "revenue_sourced", label: "Revenue sourced/verified", type: "boolean" },
+  { key: "ebitda_margin_pct", label: "EBITDA margin (%)", type: "number" },
+  { key: "ebitda_sourced", label: "EBITDA sourced/verified", type: "boolean" },
+  { key: "payback_months", label: "Payback (months)", type: "number" },
+  { key: "payback_sourced", label: "Payback sourced/verified", type: "boolean" },
+  { key: "notes", label: "Notes", type: "textarea" },
+];
+
 export default function FormatDeepDiveModal({ taxonomy, economics, onClose }: FormatDeepDiveModalProps) {
+  const { role } = useUserRole();
+  const [suggesting, setSuggesting] = useState(false);
+
   return (
     <Modal title={taxonomy.format} subtitle={taxonomy.theme} onClose={onClose}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -74,6 +98,27 @@ export default function FormatDeepDiveModal({ taxonomy, economics, onClose }: Fo
       </div>
 
       {economics?.notes && <p className="text-sm text-muted mt-6 border-t border-border pt-4">{economics.notes}</p>}
+
+      {role === "contributor" && (
+        <button
+          onClick={() => setSuggesting(true)}
+          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-sm border border-border text-ink hover:bg-bg transition-colors mt-6"
+        >
+          <Pencil size={16} /> Suggest an edit
+        </button>
+      )}
+
+      {suggesting && (
+        <SuggestEditModal
+          title={`Suggest an edit — ${taxonomy.format}`}
+          targetTable="format_economics"
+          targetRecordId={economics?.code ?? null}
+          currentValues={{ code: taxonomy.code, name: taxonomy.format, ...(economics ?? {}) }}
+          fields={FORMAT_SUGGEST_FIELDS}
+          onClose={() => setSuggesting(false)}
+          onSubmitted={() => {}}
+        />
+      )}
     </Modal>
   );
 }

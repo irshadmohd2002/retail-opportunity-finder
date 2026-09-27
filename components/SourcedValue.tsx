@@ -5,6 +5,8 @@ interface SourcedValueProps {
   unavailableLabel?: string;
   phase2Note?: string;
   className?: string;
+  /** Force the muted+italic style regardless of `sourced`. The "(est.)" suffix still only shows when `!sourced`. */
+  alwaysMuted?: boolean;
 }
 
 /**
@@ -20,6 +22,7 @@ export default function SourcedValue({
   unavailableLabel = "Not yet available",
   phase2Note,
   className = "",
+  alwaysMuted = false,
 }: SourcedValueProps) {
   if (value === null || value === undefined) {
     return (
@@ -33,7 +36,7 @@ export default function SourcedValue({
   const display = format ? format(value) : String(value);
 
   return (
-    <span className={`${sourced ? "text-ink" : "text-muted italic"} ${className}`}>
+    <span className={`${alwaysMuted || !sourced ? "text-muted italic" : "text-ink"} ${className}`}>
       {display}
       {!sourced && <span className="ml-1 text-xs align-top">(est.)</span>}
     </span>

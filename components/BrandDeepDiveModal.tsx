@@ -1,7 +1,11 @@
 "use client";
 
+import { useState } from "react";
+import { Pencil } from "lucide-react";
 import Modal from "./Modal";
 import SourcedValue from "./SourcedValue";
+import SuggestEditModal, { type SuggestEditField } from "./SuggestEditModal";
+import { useUserRole } from "@/lib/useUserRole";
 import { formatInr, formatPct } from "@/lib/format";
 import type { BrandPartnership } from "@/lib/types";
 
@@ -12,7 +16,26 @@ interface BrandDeepDiveModalProps {
 
 const VERIFY_LABEL = "Not yet available — verify directly with brand";
 
+const BRAND_SUGGEST_FIELDS: SuggestEditField[] = [
+  { key: "operating_model", label: "Operating model", type: "text" },
+  { key: "brand_provides", label: "Brand provides", type: "array" },
+  { key: "partner_provides", label: "Partner provides", type: "array" },
+  { key: "space_min_sqft", label: "Space min (sqft)", type: "number" },
+  { key: "space_max_sqft", label: "Space max (sqft)", type: "number" },
+  { key: "space_sourced", label: "Space sourced/verified", type: "boolean" },
+  { key: "franchise_fee_inr", label: "Franchise fee (INR)", type: "number" },
+  { key: "royalty_pct", label: "Royalty (%)", type: "number" },
+  { key: "marketing_fee_pct", label: "Marketing fee (%)", type: "number" },
+  { key: "fees_sourced", label: "Fees sourced/verified", type: "boolean" },
+  { key: "regulatory_requirements", label: "Regulatory requirements", type: "array" },
+  { key: "other_requirements", label: "Other requirements", type: "array" },
+  { key: "source_url", label: "Source URL", type: "text" },
+];
+
 export default function BrandDeepDiveModal({ brand, onClose }: BrandDeepDiveModalProps) {
+  const { role } = useUserRole();
+  const [suggesting, setSuggesting] = useState(false);
+
   const spaceRange =
     brand.space_min_sqft != null || brand.space_max_sqft != null
       ? [brand.space_min_sqft, brand.space_max_sqft].filter((v) => v != null).join(" – ") + " sq.ft."
@@ -70,6 +93,27 @@ export default function BrandDeepDiveModal({ brand, onClose }: BrandDeepDiveModa
         >
           Source
         </a>
+      )}
+
+      {role === "contributor" && (
+        <button
+          onClick={() => setSuggesting(true)}
+          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-sm border border-border text-ink hover:bg-bg transition-colors mt-4"
+        >
+          <Pencil size={16} /> Suggest an edit
+        </button>
+      )}
+
+      {suggesting && (
+        <SuggestEditModal
+          title={`Suggest an edit — ${brand.brand_name}`}
+          targetTable="brand_partnerships"
+          targetRecordId={String(brand.id)}
+          currentValues={brand as unknown as Record<string, unknown>}
+          fields={BRAND_SUGGEST_FIELDS}
+          onClose={() => setSuggesting(false)}
+          onSubmitted={() => {}}
+        />
       )}
     </Modal>
   );

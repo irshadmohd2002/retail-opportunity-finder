@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { inputClassName } from "./fields";
 
+async function redirectByRole(router: ReturnType<typeof useRouter>, userId: string) {
+  const { data } = await supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle();
+  router.replace(data?.role === "admin" ? "/admin" : "/");
+}
+
 export default function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -15,7 +20,7 @@ export default function LoginForm() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace("/admin");
+      if (data.session) redirectByRole(router, data.session.user.id);
       else setCheckingSession(false);
     });
   }, [router]);
@@ -24,13 +29,13 @@ export default function LoginForm() {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     setSubmitting(false);
     if (error) {
       setError(error.message);
       return;
     }
-    router.replace("/admin");
+    if (data.user) await redirectByRole(router, data.user.id);
   }
 
   if (checkingSession) return null;
@@ -38,8 +43,10 @@ export default function LoginForm() {
   return (
     <div className="max-w-sm mx-auto p-6 flex flex-col gap-6 mt-16">
       <div>
-        <h1 className="font-serif-display font-semibold text-2xl text-navy">Admin login</h1>
-        <p className="text-sm text-muted mt-1">Sign in to manage outlets and format data.</p>
+        <h1 className="font-serif-display font-semibold text-2xl text-navy">Sign in</h1>
+        <p className="text-sm text-muted mt-1">
+          Admin: manage outlets and format data. Contributor: suggest edits for admin review.
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">

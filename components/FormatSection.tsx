@@ -34,13 +34,20 @@ export default function FormatSection({
       {formats.length === 0 ? (
         <p className="text-sm text-muted italic px-5 py-4">{emptyLabel}</p>
       ) : (
-        <table className="w-full">
+        <table className="w-full table-fixed">
+          <colgroup>
+            <col style={{ width: "24%" }} />
+            <col style={{ width: "32%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "14%" }} />
+          </colgroup>
           <thead>
             <tr className="text-left text-xs text-muted border-b border-border">
               <th className="py-2 pl-3 pr-2 font-medium">Format</th>
               <th className="py-2 px-2 font-medium">Recommended brands</th>
               <th className="py-2 px-2 font-medium">Typical space</th>
-              <th className="py-2 px-2 w-32 font-medium">Space used</th>
+              <th className="py-2 px-2 font-medium">Space used</th>
               <th className="py-2 pl-2 pr-3 font-medium">Fit</th>
             </tr>
           </thead>

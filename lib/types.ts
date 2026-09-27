@@ -26,6 +26,17 @@ export interface RoProfile {
   demand_index: number | null;
   /** Placeholder engine input, manually entered 0-100. See lib/scoring.ts. */
   whitespace_index: number | null;
+  omc_id: number;
+  /** Backend-only -- no public field displays raw coordinates. Used for Nearby Outlets (Haversine). */
+  latitude: number | null;
+  longitude: number | null;
+  pincode: string | null;
+}
+
+export interface Omc {
+  id: number;
+  name: string;
+  created_at: string;
 }
 
 export interface RoImage {
@@ -79,4 +90,39 @@ export interface BrandPartnership {
   sourced: boolean;
   last_verified: string | null;
   created_at: string;
+}
+
+export type FontPairing = "editorial" | "classic" | "modern";
+export type SizeScale = "compact" | "normal" | "large";
+
+export interface SiteSettings {
+  id: string;
+  font_pairing: FontPairing;
+  accent_color: string;
+  size_scale: SizeScale;
+  updated_at: string;
+}
+
+export type UserAppRole = "admin" | "contributor";
+
+export interface UserRole {
+  user_id: string;
+  role: UserAppRole;
+  created_at: string;
+}
+
+export type SubmissionTargetTable = "ro_profiles" | "format_economics" | "brand_partnerships";
+export type SubmissionStatus = "pending" | "approved" | "rejected";
+
+export interface Submission {
+  id: number;
+  target_table: SubmissionTargetTable;
+  target_record_id: string | null;
+  proposed_changes: Record<string, unknown>;
+  submitted_by: string;
+  created_at: string;
+  status: SubmissionStatus;
+  admin_notes: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
 }

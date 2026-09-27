@@ -18,6 +18,8 @@
   --cat-other: #9aa3ac;
   --chip-bg: #f5dbdd;
   --chip-border: #e8b8bc;
+  /* 20% tint of --feasible over white -- used for "available/remaining" capacity, never red. */
+  --feasible-tint: #d0eddb;
 }
 
 @theme inline {
@@ -38,6 +40,14 @@
   --color-cat-other: var(--cat-other);
   --color-chip-bg: var(--chip-bg);
   --color-chip-border: var(--chip-border);
+  --color-feasible-tint: var(--feasible-tint);
+  /*
+   * These two default to the Editorial pairing. RootLayout overrides both,
+   * plus --navy and html font-size, via inline style from site_settings --
+   * inline style wins over this @theme inline declaration since it's set
+   * directly on <html>, which is what makes the Theme Settings page's choice
+   * apply site-wide without editing this file.
+   */
   --font-serif-display: var(--font-fraunces);
   --font-sans: var(--font-work-sans);
   --radius-sm: 2px;
@@ -48,7 +58,7 @@
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-work-sans), sans-serif;
+  font-family: var(--font-sans), sans-serif;
 }
 
 .shadow-card {

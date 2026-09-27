@@ -1,33 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Session } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { useUserRole } from "@/lib/useUserRole";
 
 export default function RequireAuth({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const { session, role } = useUserRole();
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (!data.session) router.replace("/admin/login");
-    });
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-      if (!newSession) router.replace("/admin/login");
-    });
-
-    return () => sub.subscription.unsubscribe();
-  }, [router]);
-
-  if (session === undefined) {
+  if (role === undefined) {
     return <p className="max-w-5xl mx-auto p-6 text-sm text-muted">Loading…</p>;
   }
 
-  if (!session) return null;
+  if (session === null) {
+    router.replace("/admin/login");
+    return null;
+  }
+
+  if (role !== "admin") {
+    return (
+      <p className="max-w-5xl mx-auto p-6 text-sm text-muted">
+        This area is admin-only. Signed in as a {role === "contributor" ? "contributor" : "user with no assigned role"}.
+      </p>
+    );
+  }
 
   return <>{children}</>;
 }

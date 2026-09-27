@@ -1,25 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import OutletsAdmin from "./OutletsAdmin";
 import FormatEconomicsAdmin from "./FormatEconomicsAdmin";
 import BrandPartnershipsAdmin from "./BrandPartnershipsAdmin";
 import PhotosAdmin from "./PhotosAdmin";
+import ThemeSettingsAdmin from "./ThemeSettingsAdmin";
+import SubmissionsAdmin from "./SubmissionsAdmin";
 
 const TABS = [
   { key: "outlets", label: "Outlets" },
   { key: "formats", label: "Format economics" },
   { key: "brands", label: "Brand partnerships" },
   { key: "photos", label: "Photos" },
+  { key: "theme", label: "Theme" },
+  { key: "submissions", label: "Submissions" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
 
 export default function AdminApp() {
   const [tab, setTab] = useState<TabKey>("outlets");
+  const [pendingCount, setPendingCount] = useState(0);
   const router = useRouter();
+
+  useEffect(() => {
+    supabase
+      .from("submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .then(({ count }) => setPendingCount(count ?? 0));
+  }, []);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -43,11 +56,16 @@ export default function AdminApp() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`text-sm px-4 py-2 border-b-2 -mb-px ${
+            className={`text-sm px-4 py-2 border-b-2 -mb-px flex items-center gap-1.5 ${
               tab === t.key ? "border-navy text-navy font-medium" : "border-transparent text-muted"
             }`}
           >
             {t.label}
+            {t.key === "submissions" && pendingCount > 0 && (
+              <span className="text-xs bg-navy text-white rounded-full px-1.5 py-0.5 leading-none">
+                {pendingCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -56,6 +74,8 @@ export default function AdminApp() {
       {tab === "formats" && <FormatEconomicsAdmin />}
       {tab === "brands" && <BrandPartnershipsAdmin />}
       {tab === "photos" && <PhotosAdmin />}
+      {tab === "theme" && <ThemeSettingsAdmin />}
+      {tab === "submissions" && <SubmissionsAdmin onCountChange={setPendingCount} />}
     </div>
   );
 }

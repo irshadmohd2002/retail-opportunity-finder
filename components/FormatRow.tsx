@@ -56,13 +56,14 @@ export default function FormatRow({ scored, brands, onOpenFormat, onOpenBrand, s
           value={economics?.space_sqft ?? null}
           sourced={economics?.space_sourced ?? false}
           format={(v) => formatSqft(Number(v))}
+          alwaysMuted
         />
       </td>
 
-      <td className="py-3 px-2 align-top w-32">
+      <td className="py-3 px-2 align-top">
         {spaceUsedPct !== null ? (
           <div>
-            <ProgressBar pct={spaceUsedPct} color="var(--copper)" />
+            <ProgressBar pct={spaceUsedPct} color="var(--muted)" />
             <p className="text-xs text-muted mt-1">{Math.round(spaceUsedPct)}% of available space</p>
           </div>
         ) : (

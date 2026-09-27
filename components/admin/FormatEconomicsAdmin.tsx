@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { FormatEconomics } from "@/lib/types";
 import { TAXONOMY } from "@/lib/taxonomy";
+import { FORMAT_ECONOMICS_SCHEMA, fetchFormatEconomicsDbContext } from "@/lib/csvSchemas";
 import Modal from "../Modal";
 import { NumberField, CheckboxField, TextAreaField } from "./fields";
+import CsvImport from "./CsvImport";
 
 function blankFor(code: string, name: string): FormatEconomics {
   return {
@@ -66,7 +68,10 @@ export default function FormatEconomicsAdmin() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="font-semibold">Format economics</h2>
+      <div className="flex justify-between items-center">
+        <h2 className="font-semibold">Format economics</h2>
+        <CsvImport schema={FORMAT_ECONOMICS_SCHEMA} fetchDbContext={fetchFormatEconomicsDbContext} onImported={load} />
+      </div>
       {error && <p className="text-sm" style={{ color: "var(--navy)" }}>{error}</p>}
 
       {loading ? (

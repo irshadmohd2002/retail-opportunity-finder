@@ -40,30 +40,35 @@ export default function PhotosAdmin() {
     if (outletId) loadImages(outletId);
   }, [outletId]);
 
-  async function handleUpload(file: File) {
-    if (!outletId) return;
+  async function handleUpload(files: FileList) {
+    if (!outletId || files.length === 0) return;
     setUploading(true);
     setError(null);
-    const path = `${outletId}/${Date.now()}-${file.name}`;
-    const { error: uploadError } = await supabase.storage.from("ro-images").upload(path, file);
-    if (uploadError) {
-      setError(
-        uploadError.message.includes("Bucket not found")
-          ? "Storage bucket 'ro-images' not found — run migrations/002_storage_bucket.sql in the Supabase SQL Editor first."
-          : uploadError.message
-      );
-      setUploading(false);
-      return;
+    let nextSortOrder = images.length;
+
+    for (const file of Array.from(files)) {
+      const path = `${outletId}/${Date.now()}-${file.name}`;
+      const { error: uploadError } = await supabase.storage.from("ro-images").upload(path, file);
+      if (uploadError) {
+        setError(
+          uploadError.message.includes("Bucket not found")
+            ? "Storage bucket 'ro-images' not found — run migrations/002_storage_bucket.sql in the Supabase SQL Editor first."
+            : uploadError.message
+        );
+        break;
+      }
+      const { data: publicUrl } = supabase.storage.from("ro-images").getPublicUrl(path);
+      const { error: insertError } = await supabase
+        .from("ro_images")
+        .insert({ ro_id: outletId, url: publicUrl.publicUrl, caption: caption || null, sort_order: nextSortOrder });
+      if (insertError) {
+        setError(insertError.message);
+        break;
+      }
+      nextSortOrder += 1;
     }
-    const { data: publicUrl } = supabase.storage.from("ro-images").getPublicUrl(path);
-    const { error: insertError } = await supabase
-      .from("ro_images")
-      .insert({ ro_id: outletId, url: publicUrl.publicUrl, caption: caption || null, sort_order: images.length });
+
     setUploading(false);
-    if (insertError) {
-      setError(insertError.message);
-      return;
-    }
     setCaption("");
     loadImages(outletId);
   }
@@ -88,14 +93,15 @@ export default function PhotosAdmin() {
         />
         <TextField label="Caption (optional)" value={caption} onChange={setCaption} />
         <label className="text-sm">
-          <span className="text-muted block mb-1">Upload photo</span>
+          <span className="text-muted block mb-1">Upload photos (select or drop multiple)</span>
           <input
             type="file"
             accept="image/*"
+            multiple
             disabled={uploading || !outletId}
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleUpload(file);
+              const files = e.target.files;
+              if (files && files.length > 0) handleUpload(files);
               e.target.value = "";
             }}
           />
