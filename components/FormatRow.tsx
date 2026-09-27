@@ -56,7 +56,7 @@ export default function FormatRow({ scored, brands, onOpenFormat, onOpenBrand, s
           value={economics?.space_sqft ?? null}
           sourced={economics?.space_sourced ?? false}
           format={(v) => formatSqft(Number(v))}
-          alwaysMuted
+          alwaysInk
         />
       </td>
 

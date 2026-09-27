@@ -70,8 +70,8 @@ export default function OutletSummaryCard({ outlet, omcName }: { outlet: RoProfi
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
-        <Stat label="Total plot" value={plotSqft} unit="sq.ft." sourced={outlet.sourced} />
-        <Stat label="Available space" value={vacantSqft} unit="sq.ft." sourced={outlet.sourced} />
+        <Stat label="Total plot" value={plotSqft} unit="sq.ft." />
+        <Stat label="Available space" value={vacantSqft} unit="sq.ft." />
         <div>
           <p className="text-sm text-muted">Existing outlets</p>
           <p className="font-serif-display font-semibold text-2xl mt-0.5">{outlet.existing_tenants.length}</p>
@@ -139,12 +139,10 @@ function Stat({
   label,
   value,
   unit,
-  sourced,
 }: {
   label: string;
   value: number | null;
   unit: string;
-  sourced: boolean;
 }) {
   return (
     <div>
@@ -152,7 +150,7 @@ function Stat({
       {value === null ? (
         <p className="text-muted italic mt-0.5">Not available</p>
       ) : (
-        <p className={`font-serif-display font-semibold text-2xl mt-0.5 ${sourced ? "text-ink" : "text-muted italic"}`}>
+        <p className="font-serif-display font-semibold text-2xl mt-0.5 text-ink">
           {Math.round(value).toLocaleString("en-IN")}{" "}
           <span className="text-sm font-sans font-normal">{unit}</span>
         </p>
