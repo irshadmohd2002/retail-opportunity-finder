@@ -3,10 +3,10 @@
 -- buckets or storage policies (confirmed: POST /storage/v1/bucket -> 403),
 -- so this must be run in the Supabase SQL Editor.
 --
--- This is an internal, no-login tool that authenticates only via the
--- publishable/anon key, so these policies intentionally allow any holder of
--- that key to read/write this one bucket. Do not reuse this pattern for a
--- bucket that should be restricted to authenticated staff.
+-- NOTE: the write policies created below are superseded by
+-- migrations/003_admin_auth_rls.sql, which restricts insert/update/delete on
+-- this bucket to the authenticated role now that /admin requires login. Run
+-- 003 after this file.
 
 insert into storage.buckets (id, name, public)
 values ('ro-images', 'ro-images', true)

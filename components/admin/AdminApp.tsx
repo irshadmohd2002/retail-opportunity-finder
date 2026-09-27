@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 import OutletsAdmin from "./OutletsAdmin";
 import FormatEconomicsAdmin from "./FormatEconomicsAdmin";
 import BrandPartnershipsAdmin from "./BrandPartnershipsAdmin";
@@ -17,12 +19,23 @@ type TabKey = (typeof TABS)[number]["key"];
 
 export default function AdminApp() {
   const [tab, setTab] = useState<TabKey>("outlets");
+  const router = useRouter();
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    router.replace("/admin/login");
+  }
 
   return (
     <div className="max-w-5xl mx-auto p-6 flex flex-col gap-6">
-      <div>
-        <h1 className="font-serif-display font-semibold text-2xl text-navy">Admin</h1>
-        <p className="text-sm text-muted mt-1">Manage outlets, format economics, and brand partnership data.</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="font-serif-display font-semibold text-2xl text-navy">Admin</h1>
+          <p className="text-sm text-muted mt-1">Manage outlets, format economics, and brand partnership data.</p>
+        </div>
+        <button onClick={handleSignOut} className="text-sm text-muted hover:underline">
+          Sign out
+        </button>
       </div>
 
       <div className="flex gap-1 border-b border-border">
