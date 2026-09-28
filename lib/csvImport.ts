@@ -1,5 +1,6 @@
 import Papa from "papaparse";
 import { isPossibleDuplicate, similarity } from "./fuzzyMatch";
+import { haversineKm } from "./geo";
 
 export type CsvColumnType = "text" | "number" | "boolean" | "array" | "enum";
 
@@ -17,7 +18,15 @@ export interface CsvDbContext {
   /** Natural-key string (see naturalKeyValue) -> existing record's identifying value, for insert/update classification. */
   existingKeys: Set<string>;
   /** For the fuzzy-duplicate-vs-DB check: existing records' natural key + fuzzy field value. */
-  fuzzyCandidates: { naturalKey: string; label: string; value: string }[];
+  fuzzyCandidates: {
+    naturalKey: string;
+    label: string;
+    value: string;
+    /** Only used by schemas with locationAwareDuplicates (ro_profiles). */
+    latitude?: number | null;
+    longitude?: number | null;
+    pincode?: string | null;
+  }[];
   /** Existing format_economics.code values, for existing_tenants / format_code FK checks from other tables. */
   formatCodes?: Set<string>;
   /** Fixed TAXONOMY code set, for validating format_economics' own `code` column. */
@@ -38,6 +47,12 @@ export interface CsvTableSchema {
   onConflict: string;
   /** Column checked for near-duplicates (within the CSV and against the DB). */
   fuzzyField?: string;
+  /**
+   * Opt-in: a name match alone is not enough to flag a duplicate; location is
+   * also compared (see locationDuplicateVerdict). Without this, fuzzyField is
+   * name-only.
+   */
+  locationAwareDuplicates?: { radiusM: number };
   crossFieldRules: { message: string; check: (row: Record<string, unknown>) => boolean }[];
   /** Keys present in `columns` (for template/parsing purposes) that are not real DB columns and must be dropped before writing, e.g. "omc" (resolves to omc_id). */
   excludeFromPayload?: string[];
@@ -50,6 +65,10 @@ export interface DuplicateFlag {
   /** Only for "against_db": the matched existing record's natural key, so a row can be redirected to update it. */
   matchedNaturalKey?: string;
   similarityPct: number;
+  /** Human-readable why this was flagged, e.g. "similar name, 60 m apart". Only set for location-aware schemas. */
+  reason?: string;
+  /** Only set when both records had coordinates. */
+  distanceM?: number;
 }
 
 /**
@@ -164,6 +183,43 @@ export function splitNaturalKey(schema: CsvTableSchema, key: string): Record<str
   return Object.fromEntries(schema.naturalKey.map((k, i) => [k, parts[i] ?? ""]));
 }
 
+interface DuplicateLocation {
+  latitude: number | null;
+  longitude: number | null;
+  pincode: string | null;
+}
+
+function toLocation(source: {
+  latitude?: unknown;
+  longitude?: unknown;
+  pincode?: unknown;
+}): DuplicateLocation {
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const pin = typeof source.pincode === "string" ? source.pincode.trim() : "";
+  return { latitude: num(source.latitude), longitude: num(source.longitude), pincode: pin === "" ? null : pin };
+}
+
+/**
+ * Given two records whose names already matched, decides whether they are
+ * possible duplicates. In order: both have coordinates -> flag only within
+ * radiusM (inclusive); else both have a pincode -> flag only if equal; else
+ * nothing to compare -> flag on name alone, labelled low-confidence.
+ */
+export function locationDuplicateVerdict(
+  a: DuplicateLocation,
+  b: DuplicateLocation,
+  radiusM: number
+): { flag: boolean; reason: string; distanceM?: number } {
+  if (a.latitude !== null && a.longitude !== null && b.latitude !== null && b.longitude !== null) {
+    const distanceM = haversineKm(a.latitude, a.longitude, b.latitude, b.longitude) * 1000;
+    return { flag: distanceM <= radiusM, reason: `similar name, ${Math.round(distanceM)} m apart`, distanceM };
+  }
+  if (a.pincode !== null && b.pincode !== null) {
+    return { flag: a.pincode === b.pincode, reason: `similar name, same pincode ${a.pincode}` };
+  }
+  return { flag: true, reason: "similar name, no location data to compare (low confidence)" };
+}
+
 /**
  * Validates and classifies every parsed row against a table schema and live
  * DB context. Never writes anything -- purely a preview computation. Hard
@@ -270,7 +326,9 @@ export function validateImport(
   // Fuzzy duplicate detection -- only for rows that passed hard validation and are genuinely new inserts.
   if (schema.fuzzyField) {
     const field = schema.fuzzyField;
+    const geo = schema.locationAwareDuplicates;
     const validNewRows = rows.filter((r) => r.parsed !== null && r.action === "insert");
+    const locations = new Map(validNewRows.map((r) => [r, toLocation(r.parsed!)]));
 
     for (const row of validNewRows) {
       const value = String(row.parsed![field] ?? "");
@@ -280,26 +338,34 @@ export function validateImport(
         if (other === row || other.rowNumber >= row.rowNumber) continue;
         const otherValue = String(other.parsed![field] ?? "");
         const sim = similarity(value, otherValue);
-        if (isPossibleDuplicate(value, otherValue)) {
-          row.duplicates.push({
-            kind: "within_csv",
-            matchedRowNumber: other.rowNumber,
-            matchedLabel: otherValue,
-            similarityPct: Math.round(sim * 100),
-          });
-        }
+        if (!isPossibleDuplicate(value, otherValue)) continue;
+        const verdict = geo
+          ? locationDuplicateVerdict(locations.get(row)!, locations.get(other)!, geo.radiusM)
+          : null;
+        if (verdict && !verdict.flag) continue;
+        row.duplicates.push({
+          kind: "within_csv",
+          matchedRowNumber: other.rowNumber,
+          matchedLabel: otherValue,
+          similarityPct: Math.round(sim * 100),
+          ...(verdict && { reason: verdict.reason, distanceM: verdict.distanceM }),
+        });
       }
 
       for (const candidate of ctx.fuzzyCandidates) {
         const sim = similarity(value, candidate.value);
-        if (isPossibleDuplicate(value, candidate.value)) {
-          row.duplicates.push({
-            kind: "against_db",
-            matchedLabel: candidate.label,
-            matchedNaturalKey: candidate.naturalKey,
-            similarityPct: Math.round(sim * 100),
-          });
-        }
+        if (!isPossibleDuplicate(value, candidate.value)) continue;
+        const verdict = geo
+          ? locationDuplicateVerdict(locations.get(row)!, toLocation(candidate), geo.radiusM)
+          : null;
+        if (verdict && !verdict.flag) continue;
+        row.duplicates.push({
+          kind: "against_db",
+          matchedLabel: candidate.label,
+          matchedNaturalKey: candidate.naturalKey,
+          similarityPct: Math.round(sim * 100),
+          ...(verdict && { reason: verdict.reason, distanceM: verdict.distanceM }),
+        });
       }
     }
   }

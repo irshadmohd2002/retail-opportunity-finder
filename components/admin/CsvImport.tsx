@@ -191,7 +191,7 @@ export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImp
                             ? `Near-matches row ${d.matchedRowNumber} in this file`
                             : `Near-matches existing record`}
                           : &quot;{String(row.parsed?.[schema.fuzzyField ?? ""])}&quot; vs &quot;{d.matchedLabel}&quot; (
-                          {d.similarityPct}% similar)
+                          {d.similarityPct}% similar{d.reason ? `; ${d.reason}` : ""})
                         </p>
                       ))}
                       <select

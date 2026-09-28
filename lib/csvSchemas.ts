@@ -7,6 +7,7 @@ export const RO_PROFILES_SCHEMA: CsvTableSchema = {
   naturalKey: ["id"],
   onConflict: "id",
   fuzzyField: "name",
+  locationAwareDuplicates: { radiusM: 200 },
   excludeFromPayload: ["omc"],
   columns: [
     { key: "id", header: "ID (slug, unique)", type: "text", required: true, example: "andheri" },
@@ -116,7 +117,7 @@ export const BRAND_PARTNERSHIPS_SCHEMA: CsvTableSchema = {
 
 export async function fetchRoProfilesDbContext(): Promise<CsvDbContext> {
   const [{ data: profiles }, { data: formats }, { data: omcs }] = await Promise.all([
-    supabase.from("ro_profiles").select("id, name, state, district"),
+    supabase.from("ro_profiles").select("id, name, state, district, latitude, longitude, pincode"),
     supabase.from("format_economics").select("code"),
     supabase.from("omcs").select("id, name"),
   ]);
@@ -126,6 +127,9 @@ export async function fetchRoProfilesDbContext(): Promise<CsvDbContext> {
       naturalKey: p.id,
       label: `${p.name} (${p.id})`,
       value: p.name,
+      latitude: p.latitude,
+      longitude: p.longitude,
+      pincode: p.pincode,
     })),
     formatCodes: new Set((formats ?? []).map((f) => f.code)),
     omcNameToId: new Map((omcs ?? []).map((o) => [o.name.toLowerCase(), o.id as number])),
