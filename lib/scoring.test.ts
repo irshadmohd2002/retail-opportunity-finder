@@ -3,17 +3,24 @@ import {
   scoreFormatsForOutlet,
   tierFormats,
   sortByLens,
+  sortTiersByLens,
   getBrandShortlist,
+  weightedScore,
+  scoreInputsMissing,
+  NEUTRAL_WHITESPACE,
   SQM_TO_SQFT,
   type ScoredFormat,
 } from "./scoring";
 import { TAXONOMY } from "./taxonomy";
-import type { RoProfile, FormatEconomics, BrandPartnership } from "./types";
+import type { RoProfile, FormatEconomics, BrandPartnership, RoFormatCompetition } from "./types";
 
 function stubScored(economics: FormatEconomics): ScoredFormat {
   return {
     taxonomy: TAXONOMY[0],
     economics,
+    whitespace: { value: null, source: "outlet_index" },
+    competition: null,
+    marketScore: null,
     vacantSqft: 0,
     ratio: null,
     status: "not_feasible",
@@ -223,6 +230,7 @@ describe("Stage 4: tiering", () => {
       tiers.alsoFeasible.length +
       tiers.worthExploring.length +
       tiers.limitedFit.length +
+      tiers.marketOpportunity.length +
       tiers.unknownFit.length;
     expect(totalTiered).toBe(scored.length);
   });
@@ -307,5 +315,232 @@ describe("Stage 6: brand shortlist", () => {
 
   it("returns an empty array when no brands exist for the format", () => {
     expect(getBrandShortlist("A9.9", [])).toHaveLength(0);
+  });
+});
+
+function makeCompetition(code: string, overrides: Partial<RoFormatCompetition> = {}): RoFormatCompetition {
+  return {
+    ro_id: "test",
+    format_code: code,
+    count_1km: 5,
+    count_2km: 12,
+    expected_count_2km: 10,
+    gap_score: 60,
+    naive_whitespace_score: 40,
+    signal_quality: "strong",
+    border_risk: false,
+    ...overrides,
+  };
+}
+
+function competitionMap(...rows: RoFormatCompetition[]): Record<string, RoFormatCompetition> {
+  return Object.fromEntries(rows.map((r) => [r.format_code, r]));
+}
+
+function ecoFor(codes: string[], space_sqft: number | null = 100): Record<string, FormatEconomics> {
+  return Object.fromEntries(codes.map((c) => [c, makeEconomics(c, { space_sqft })]));
+}
+
+describe("weightedScore: the single home of the weights", () => {
+  it("uses 0.45 / 0.35 / 0.20 when feasibility is present", () => {
+    expect(weightedScore({ demand: 100, whitespace: 0, feasibility: 0 })).toBeCloseTo(45, 10);
+    expect(weightedScore({ demand: 0, whitespace: 100, feasibility: 0 })).toBeCloseTo(35, 10);
+    expect(weightedScore({ demand: 0, whitespace: 0, feasibility: 100 })).toBeCloseTo(20, 10);
+  });
+
+  it("re-weights demand/whitespace to 0.45/0.80 and 0.35/0.80 (sum 1) without feasibility", () => {
+    expect(weightedScore({ demand: 100, whitespace: 0, feasibility: null })).toBeCloseTo(56.25, 10);
+    expect(weightedScore({ demand: 0, whitespace: 100, feasibility: null })).toBeCloseTo(43.75, 10);
+    expect(weightedScore({ demand: 100, whitespace: 100, feasibility: null })).toBeCloseTo(100, 10);
+  });
+});
+
+describe("no competition rows: legacy whitespace_index behaviour is unchanged", () => {
+  // Reference copy of the pre-competition formula. Do not "simplify" this to call weightedScore.
+  function legacyScore(demand: number, whitespace: number, vacantSqm: number, spaceSqft: number) {
+    const ratio = (vacantSqm * SQM_TO_SQFT) / spaceSqft;
+    return 0.45 * demand + 0.35 * whitespace + 0.2 * Math.min(ratio * 100, 100);
+  }
+
+  // A COCO Jalampura-style outlet: known space, demand and whitespace index.
+  const outlet = makeOutlet({ type: "highway", vacant_sqm: 45, demand_index: 72, whitespace_index: 64 });
+  const eco = Object.fromEntries(
+    TAXONOMY.map((t, i) => [t.code, makeEconomics(t.code, { space_sqft: 60 + ((i * 37) % 900) })])
+  );
+
+  it("produces exactly the legacy scores, with the competition argument omitted or empty", () => {
+    for (const scored of [scoreFormatsForOutlet(outlet, eco), scoreFormatsForOutlet(outlet, eco, {})]) {
+      expect(scored.length).toBeGreaterThan(5);
+      for (const f of scored) {
+        expect(f.score).toBe(legacyScore(72, 64, 45, eco[f.taxonomy.code].space_sqft!));
+        expect(f.whitespace).toEqual({ value: 64, source: "outlet_index" });
+        expect(f.marketScore).toBeNull();
+      }
+    }
+  });
+
+  it("ranks identically to the legacy formula", () => {
+    const legacyOrder = scoreFormatsForOutlet(outlet, eco)
+      .map((f) => ({ code: f.taxonomy.code, s: legacyScore(72, 64, 45, eco[f.taxonomy.code].space_sqft!) }))
+      .sort((a, b) => b.s - a.s)
+      .map((x) => x.code);
+    const newOrder = [...scoreFormatsForOutlet(outlet, eco, {})]
+      .sort((a, b) => b.score! - a.score!)
+      .map((f) => f.taxonomy.code);
+    expect(newOrder).toEqual(legacyOrder);
+  });
+
+  it("leaves a missing whitespace_index as an unscored (null) format, not a neutral score", () => {
+    const noIndex = makeOutlet({ vacant_sqm: 45, demand_index: 72, whitespace_index: null });
+    for (const f of scoreFormatsForOutlet(noIndex, eco, {})) expect(f.score).toBeNull();
+    expect(scoreInputsMissing(noIndex, false)).toBe(true);
+  });
+});
+
+describe("outlets with competition rows: per-format whitespace", () => {
+  const outlet = makeOutlet({ vacant_sqm: 1000, demand_index: 60, whitespace_index: 99 });
+  const codes = ["A1.1", "A1.2", "A1.3", "A1.4", "A1.5"];
+  const eco = ecoFor(codes);
+  // demand 60, feasibility 100 (space is ample): score = 27 + 0.35 * whitespace + 20.
+  const scoreWith = (whitespace: number) => 0.45 * 60 + 0.35 * whitespace + 0.2 * 100;
+  const find = (rows: Record<string, RoFormatCompetition>, code: string) =>
+    scoreFormatsForOutlet(outlet, eco, rows).find((f) => f.taxonomy.code === code)!;
+
+  it("uses gap_score for strong and for borderline signals (ignoring whitespace_index)", () => {
+    const rows = competitionMap(
+      makeCompetition("A1.1", { signal_quality: "strong", gap_score: 80 }),
+      makeCompetition("A1.2", { signal_quality: "borderline", gap_score: 30 })
+    );
+    expect(find(rows, "A1.1").whitespace).toEqual({ value: 80, source: "gap_score" });
+    expect(find(rows, "A1.1").score).toBeCloseTo(scoreWith(80), 10);
+    expect(find(rows, "A1.2").whitespace).toEqual({ value: 30, source: "gap_score" });
+    expect(find(rows, "A1.2").score).toBeCloseTo(scoreWith(30), 10);
+  });
+
+  it.each([
+    ["thin signal", { signal_quality: "thin" as const, gap_score: 95 }],
+    ["none signal", { signal_quality: "none" as const, gap_score: null }],
+    ["border risk", { signal_quality: "strong" as const, gap_score: 95, border_risk: true }],
+    ["unknown border risk", { signal_quality: "strong" as const, gap_score: 95, border_risk: null }],
+    ["missing gap score", { signal_quality: "strong" as const, gap_score: null }],
+  ])("shows no data and scores at the neutral value for %s -- never 0 or high", (_label, overrides) => {
+    const f = find(competitionMap(makeCompetition("A1.1", overrides), makeCompetition("A1.2")), "A1.1");
+    expect(f.whitespace).toEqual({ value: null, source: "no_data" });
+    expect(f.score).toBeCloseTo(scoreWith(NEUTRAL_WHITESPACE), 10);
+    expect(f.score).not.toBeCloseTo(scoreWith(0), 5);
+    expect(f.score).not.toBeCloseTo(scoreWith(95), 5);
+  });
+
+  it("treats a format with no row, at an outlet that has other rows, as no data (not the outlet index)", () => {
+    const f = find(competitionMap(makeCompetition("A1.1")), "A1.3");
+    expect(f.competition).toBeNull();
+    expect(f.whitespace).toEqual({ value: null, source: "no_data" });
+    expect(f.score).toBeCloseTo(scoreWith(NEUTRAL_WHITESPACE), 10);
+  });
+
+  it("keeps a real gap_score of 0 as 0 (a genuine low), distinct from no data", () => {
+    const f = find(competitionMap(makeCompetition("A1.1", { gap_score: 0 })), "A1.1");
+    expect(f.whitespace).toEqual({ value: 0, source: "gap_score" });
+    expect(f.score).toBeCloseTo(scoreWith(0), 10);
+  });
+
+  it("scores when whitespace_index is null but competition rows exist", () => {
+    const noIndex = makeOutlet({ vacant_sqm: 1000, demand_index: 60, whitespace_index: null });
+    const f = scoreFormatsForOutlet(noIndex, eco, competitionMap(makeCompetition("A1.1"))).find(
+      (x) => x.taxonomy.code === "A1.1"
+    )!;
+    expect(f.score).not.toBeNull();
+    expect(scoreInputsMissing(noIndex, true)).toBe(false);
+  });
+});
+
+describe("market opportunity (feasibility unknown)", () => {
+  const unknownSpace = makeOutlet({ vacant_sqm: null, demand_index: 80, whitespace_index: null });
+  const eco = ecoFor(["A1.1", "A1.2", "A1.3", "A1.4", "A1.5"]);
+  const tiersFor = (outlet: RoProfile, rows: Record<string, RoFormatCompetition>, economics = eco) =>
+    tierFormats(scoreFormatsForOutlet(outlet, economics, rows));
+
+  it("ranks reliable formats by demand+whitespace only, re-weighted to sum to 1", () => {
+    const tiers = tiersFor(
+      unknownSpace,
+      competitionMap(
+        makeCompetition("A1.2", { signal_quality: "borderline", gap_score: 40 }),
+        makeCompetition("A1.1", { signal_quality: "strong", gap_score: 60 })
+      )
+    );
+    expect(tiers.marketOpportunity.map((f) => f.taxonomy.code)).toEqual(["A1.1", "A1.2"]);
+    expect(tiers.marketOpportunity[0].marketScore).toBeCloseTo((0.45 * 80 + 0.35 * 60) / 0.8, 10);
+    expect(tiers.marketOpportunity[1].marketScore).toBeCloseTo((0.45 * 80 + 0.35 * 40) / 0.8, 10);
+    // Space is unknown, so the normal score stays null and nothing is Priority.
+    expect(tiers.marketOpportunity.every((f) => f.status === "unknown" && f.score === null)).toBe(true);
+    expect(tiers.priority).toHaveLength(0);
+  });
+
+  it("leaves unreliable formats in the plain unknown list, and never lists a format twice", () => {
+    const rows = competitionMap(
+      makeCompetition("A1.1"),
+      makeCompetition("A1.2", { signal_quality: "thin", gap_score: 90 }),
+      makeCompetition("A1.3", { border_risk: true }),
+      makeCompetition("A1.4", { gap_score: null })
+    );
+    const tiers = tiersFor(unknownSpace, rows);
+    expect(tiers.marketOpportunity.map((f) => f.taxonomy.code)).toEqual(["A1.1"]);
+    const unknownCodes = tiers.unknownFit.map((f) => f.taxonomy.code);
+    expect(unknownCodes).not.toContain("A1.1");
+    for (const code of ["A1.2", "A1.3", "A1.4", "A1.5"]) expect(unknownCodes).toContain(code);
+  });
+
+  it("needs demand: no market score when demand_index is missing", () => {
+    const noDemand = makeOutlet({ vacant_sqm: null, demand_index: null });
+    const tiers = tiersFor(noDemand, competitionMap(makeCompetition("A1.1")));
+    expect(tiers.marketOpportunity).toHaveLength(0);
+  });
+
+  it("does not use the legacy whitespace_index: outlets without competition rows have no market section", () => {
+    const legacy = makeOutlet({ vacant_sqm: null, demand_index: 80, whitespace_index: 90 });
+    expect(tiersFor(legacy, {}).marketOpportunity).toHaveLength(0);
+  });
+
+  it("never shows a format with known feasibility, however reliable its gap score", () => {
+    // Feasible, marginal, not feasible, and one unknown (no space_sqft) at the same outlet.
+    const outlet = makeOutlet({ vacant_sqm: 50, demand_index: 90, whitespace_index: null }); // ~538 sqft
+    const mixedEco: Record<string, FormatEconomics> = {
+      "A1.1": makeEconomics("A1.1", { space_sqft: 100 }), // feasible
+      "A1.2": makeEconomics("A1.2", { space_sqft: 650 }), // marginal
+      "A1.3": makeEconomics("A1.3", { space_sqft: 5000 }), // not feasible
+      "A1.4": makeEconomics("A1.4", { space_sqft: null }), // unknown
+    };
+    const rows = competitionMap(
+      ...["A1.1", "A1.2", "A1.3", "A1.4", "A1.5"].map((c) => makeCompetition(c, { gap_score: 95 }))
+    );
+    const scored = scoreFormatsForOutlet(outlet, mixedEco, rows);
+    const byCode = (c: string) => scored.find((f) => f.taxonomy.code === c)!;
+    expect(byCode("A1.1").status).toBe("feasible");
+    expect(byCode("A1.2").status).toBe("marginal");
+    expect(byCode("A1.3").status).toBe("not_feasible");
+    for (const c of ["A1.1", "A1.2", "A1.3"]) expect(byCode(c).marketScore).toBeNull();
+
+    const tiers = tierFormats(scored);
+    const marketCodes = tiers.marketOpportunity.map((f) => f.taxonomy.code);
+    expect(marketCodes).not.toContain("A1.1");
+    expect(marketCodes).not.toContain("A1.2");
+    expect(marketCodes).not.toContain("A1.3");
+    expect(marketCodes).toEqual(expect.arrayContaining(["A1.4", "A1.5"]));
+    expect(tiers.marketOpportunity.every((f) => f.status === "unknown")).toBe(true);
+    // ...and nothing from the market section leaked into the ranked tiers.
+    const ranked = [...tiers.priority, ...tiers.alsoFeasible, ...tiers.worthExploring, ...tiers.limitedFit];
+    expect(ranked.some((f) => marketCodes.includes(f.taxonomy.code))).toBe(false);
+  });
+
+  it("is not re-ordered by the Sort by lens", () => {
+    const tiers = tiersFor(
+      unknownSpace,
+      competitionMap(makeCompetition("A1.1", { gap_score: 20 }), makeCompetition("A1.2", { gap_score: 90 }))
+    );
+    const before = tiers.marketOpportunity.map((f) => f.taxonomy.code);
+    for (const lens of ["lowest_investment", "highest_margin", "fastest_to_launch", "best_overall"] as const) {
+      expect(sortTiersByLens(tiers, lens).marketOpportunity.map((f) => f.taxonomy.code)).toEqual(before);
+    }
+    expect(before).toEqual(["A1.2", "A1.1"]);
   });
 });

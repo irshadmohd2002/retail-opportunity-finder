@@ -7,7 +7,11 @@ import {
   parseCsvFile,
   buildTemplateCsv,
   validateImport,
-  splitNaturalKey,
+  buildImportPayload,
+  countUnchangedBlankCells,
+  recheckUpdateRows,
+  groupByKeySet,
+  chunk,
   type CsvTableSchema,
   type CsvDbContext,
   type ImportPreview,
@@ -20,12 +24,18 @@ interface CsvImportProps {
   onImported: () => void;
 }
 
+const UPSERT_BATCH_SIZE = 500;
+const MAX_LISTED_ERROR_ROWS = 200;
+
 export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImportProps) {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [dbContext, setDbContext] = useState<CsvDbContext | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<{ inserted: number; updated: number; skipped: number } | null>(null);
+  const [recheckFailures, setRecheckFailures] = useState<{ rowNumber: number; errors: string[] }[]>([]);
 
   function downloadTemplate() {
     const csv = buildTemplateCsv(schema);
@@ -42,9 +52,11 @@ export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImp
     setLoading(true);
     setError(null);
     setSummary(null);
+    setRecheckFailures([]);
     try {
       const { rows } = await parseCsvFile(file);
       const ctx = await fetchDbContext();
+      setDbContext(ctx);
       setPreview(validateImport(schema, rows, ctx));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse CSV");
@@ -64,41 +76,64 @@ export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImp
     setConfirming(true);
     setError(null);
 
-    const hardErrorCount = preview.rows.filter((r) => r.errors.length > 0).length;
-    let inserted = 0;
-    let updated = 0;
+    // A row redirected to another existing record is merged with that record's stored values, so
+    // its cross-field rules are re-checked against them; failures are skipped and reported.
+    const failures = dbContext ? recheckUpdateRows(schema, preview.rows, dbContext) : [];
+    const failedRowNumbers = new Set(failures.map((f) => f.rowNumber));
+    setRecheckFailures(failures);
+
+    const hardErrorCount = preview.rows.filter((r) => r.errors.length > 0).length + failures.length;
     let skippedByChoice = 0;
-    const payloads: Record<string, unknown>[] = [];
+    const items: { payload: Record<string, unknown>; kind: "insert" | "update" }[] = [];
 
     for (const row of preview.rows) {
-      if (row.errors.length > 0 || row.parsed === null) continue;
+      if (row.errors.length > 0 || row.parsed === null || failedRowNumbers.has(row.rowNumber)) continue;
       if (row.resolution.type === "skip") {
         skippedByChoice++;
         continue;
       }
-      const payload: Record<string, unknown> = { ...row.parsed };
-      for (const key of schema.excludeFromPayload ?? []) delete payload[key];
-      if (row.resolution.type === "update") {
-        Object.assign(payload, splitNaturalKey(schema, row.resolution.naturalKey));
-        updated++;
-      } else {
-        inserted++;
-      }
-      payloads.push(payload);
+      items.push({
+        payload: buildImportPayload(schema, row.parsed, row.resolution, row.blankColumns),
+        kind: row.resolution.type,
+      });
     }
 
-    if (payloads.length > 0) {
+    // Batched so a large file (thousands of rows) never becomes one giant request. Upserts are
+    // idempotent, so after a mid-way failure re-uploading the same file is safe.
+    let inserted = 0;
+    let updated = 0;
+    let written = 0;
+    // Grouped by key set first: rows that omit a key must not share a bulk request with rows that
+    // include it, or the omitted column would be written as null.
+    const batches = groupByKeySet(items, (i) => i.payload).flatMap((group) => chunk(group, UPSERT_BATCH_SIZE));
+    for (const batch of batches) {
+      setProgress({ done: written, total: items.length });
       const { error: upsertError } = await supabase
         .from(schema.table)
-        .upsert(payloads, { onConflict: schema.onConflict });
+        .upsert(
+          batch.map((b) => b.payload),
+          { onConflict: schema.onConflict }
+        );
       if (upsertError) {
-        setError(upsertError.message);
+        setError(
+          written > 0
+            ? `${upsertError.message} — ${written} of ${items.length} rows were written before this failed. Re-uploading the same file is safe.`
+            : upsertError.message
+        );
         setConfirming(false);
+        setProgress(null);
+        if (written > 0) onImported();
         return;
+      }
+      written += batch.length;
+      for (const b of batch) {
+        if (b.kind === "update") updated++;
+        else inserted++;
       }
     }
 
     setConfirming(false);
+    setProgress(null);
     setSummary({ inserted, updated, skipped: hardErrorCount + skippedByChoice });
     setPreview(null);
     onImported();
@@ -108,6 +143,10 @@ export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImp
   const possibleDuplicateRows = preview?.rows.filter((r) => r.errors.length === 0 && r.duplicates.length > 0) ?? [];
   const cleanCount = preview?.rows.filter((r) => r.errors.length === 0).length ?? 0;
   const canConfirm = cleanCount > 0;
+  const insertCount = preview?.rows.filter((r) => r.errors.length === 0 && r.action === "insert").length ?? 0;
+  const updateCount = preview?.rows.filter((r) => r.errors.length === 0 && r.action === "update").length ?? 0;
+  const unchangedBlankCells = preview ? countUnchangedBlankCells(schema, preview.rows) : 0;
+  const hasNullableArray = schema.columns.some((c) => c.nullableArray);
 
   return (
     <div className="flex flex-col gap-2">
@@ -131,12 +170,28 @@ export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImp
         </label>
         {loading && <span className="text-xs text-muted">Parsing…</span>}
       </div>
+      <p className="text-xs text-muted max-w-md">
+        {schema.replaceOnUpdate
+          ? "This import replaces rows entirely; blank means not available."
+          : "Blank cells are ignored when updating an existing row, so its stored values are kept. A CSV cannot clear a value; edit the record in the admin form to do that."}
+        {hasNullableArray &&
+          ' For existing tenants, enter "unknown" to mark them unknown or "none" to record confirmed none; a blank cell leaves an existing row unchanged (a new row is unknown).'}
+      </p>
 
       {error && <p className="text-xs" style={{ color: "var(--navy)" }}>{error}</p>}
       {summary && (
         <p className="text-xs text-muted">
           Import complete — {summary.inserted} inserted, {summary.updated} updated, {summary.skipped} skipped.
         </p>
+      )}
+      {recheckFailures.length > 0 && (
+        <ul className="text-xs text-muted list-disc list-inside">
+          {recheckFailures.map((f) => (
+            <li key={f.rowNumber}>
+              Row {f.rowNumber} skipped after redirect to an existing record: {f.errors.join("; ")}
+            </li>
+          ))}
+        </ul>
       )}
 
       {preview && (
@@ -148,6 +203,19 @@ export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImp
               {possibleDuplicateRows.length === 1 ? "" : "s"} (your call), {cleanCount - possibleDuplicateRows.length}{" "}
               clean row{cleanCount - possibleDuplicateRows.length === 1 ? "" : "s"}.
             </p>
+
+            <p className="text-sm">
+              <span className="font-medium">{insertCount}</span> to insert,{" "}
+              <span className="font-medium">{updateCount}</span> to update,{" "}
+              <span className="font-medium">{hardErrorRows.length}</span> with errors (skipped).
+            </p>
+
+            {!schema.replaceOnUpdate && (
+              <p className="text-xs text-muted italic">
+                {unchangedBlankCells} blank or missing cell{unchangedBlankCells === 1 ? "" : "s"} on update rows will be
+                left unchanged (the stored values are kept).
+              </p>
+            )}
 
             {preview.whitespaceFixCount > 0 && (
               <p className="text-xs text-muted italic">
@@ -162,7 +230,7 @@ export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImp
                   Hard errors — these rows will not be imported
                 </h3>
                 <div className="flex flex-col gap-2">
-                  {hardErrorRows.map((row) => (
+                  {hardErrorRows.slice(0, MAX_LISTED_ERROR_ROWS).map((row) => (
                     <div key={row.rowNumber} className="text-xs border border-border rounded-sm p-2">
                       <p className="font-medium">Row {row.rowNumber}</p>
                       <ul className="list-disc list-inside text-muted mt-0.5">
@@ -172,6 +240,11 @@ export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImp
                       </ul>
                     </div>
                   ))}
+                  {hardErrorRows.length > MAX_LISTED_ERROR_ROWS && (
+                    <p className="text-xs text-muted italic">
+                      …and {hardErrorRows.length - MAX_LISTED_ERROR_ROWS} more rows with errors not listed here.
+                    </p>
+                  )}
                 </div>
               </section>
             )}
@@ -250,7 +323,11 @@ export default function CsvImport({ schema, fetchDbContext, onImported }: CsvImp
                 disabled={!canConfirm || confirming}
                 className="text-sm px-3 py-1.5 rounded-sm bg-navy text-white disabled:opacity-50"
               >
-                {confirming ? "Importing…" : `Confirm import (${cleanCount} row${cleanCount === 1 ? "" : "s"})`}
+                {confirming
+                  ? progress
+                    ? `Importing… ${progress.done} / ${progress.total}`
+                    : "Importing…"
+                  :`Confirm import (${cleanCount} row${cleanCount === 1 ? "" : "s"})`}
               </button>
             </div>
           </div>

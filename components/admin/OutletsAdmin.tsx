@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import type { RoProfile, OutletType, Omc } from "@/lib/types";
 import { RO_PROFILES_SCHEMA, fetchRoProfilesDbContext } from "@/lib/csvSchemas";
 import Modal from "../Modal";
-import { TextField, NumberField, SelectField, CheckboxField, TextAreaField, ArrayField } from "./fields";
+import { TextField, NumberField, SelectField, CheckboxField, TextAreaField, TenantsField } from "./fields";
 import CsvImport from "./CsvImport";
 
 type DraftOutlet = Omit<RoProfile, "created_at" | "updated_at">;
@@ -22,7 +22,7 @@ function blank(defaultOmcId: number | null): DraftOutlet {
     ownership: "",
     plot_sqm: null,
     vacant_sqm: null,
-    existing_tenants: [],
+    existing_tenants: null,
     fuel_volume_kl_monthly: null,
     vehicle_mix_2w_pct: null,
     vehicle_mix_4w_pct: null,
@@ -49,6 +49,7 @@ export default function OutletsAdmin() {
   const [saving, setSaving] = useState(false);
   const [uploadingLayout, setUploadingLayout] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tenantsIncomplete, setTenantsIncomplete] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -68,7 +69,7 @@ export default function OutletsAdmin() {
   }, []);
 
   async function save() {
-    if (!draft) return;
+    if (!draft || tenantsIncomplete) return;
     setSaving(true);
     setError(null);
     const { error } = await supabase.from("ro_profiles").upsert(draft);
@@ -201,11 +202,12 @@ export default function OutletsAdmin() {
             <NumberField label="Vacant area (sqm)" value={draft.vacant_sqm} onChange={(v) => setDraft({ ...draft, vacant_sqm: v })} />
             <NumberField label="Latitude (optional)" value={draft.latitude} onChange={(v) => setDraft({ ...draft, latitude: v })} />
             <NumberField label="Longitude (optional)" value={draft.longitude} onChange={(v) => setDraft({ ...draft, longitude: v })} />
-            <ArrayField
-              label="Existing tenant format codes"
+            <TenantsField
+              label="Existing outlets"
               value={draft.existing_tenants}
               placeholder="A3.3, A4.1"
               onChange={(v) => setDraft({ ...draft, existing_tenants: v })}
+              onIncompleteChange={setTenantsIncomplete}
             />
 
             <div className="sm:col-span-2 flex flex-col gap-1 text-sm">
@@ -257,7 +259,7 @@ export default function OutletsAdmin() {
             </button>
             <button
               onClick={save}
-              disabled={saving || !draft.id || !draft.name || !draft.omc_id}
+              disabled={saving || tenantsIncomplete || !draft.id || !draft.name || !draft.omc_id}
               className="text-sm px-3 py-1.5 rounded-sm bg-navy text-white disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save"}

@@ -3,13 +3,15 @@
 import { useState } from "react";
 import Modal from "./Modal";
 import { supabase } from "@/lib/supabase";
-import { TextField, NumberField, SelectField, CheckboxField, ArrayField, TextAreaField } from "./admin/fields";
+import { TextField, NumberField, SelectField, CheckboxField, ArrayField, TextAreaField, TenantsField } from "./admin/fields";
+import { proposedChangesFor } from "@/lib/submissionDiff";
 import type { SubmissionTargetTable } from "@/lib/types";
 
 export interface SuggestEditField {
   key: string;
   label: string;
-  type: "text" | "number" | "boolean" | "array" | "textarea" | "select";
+  /** "tenants" is the nullable three-way array (null unknown / [] none / codes), see TenantsField. */
+  type: "text" | "number" | "boolean" | "array" | "tenants" | "textarea" | "select";
   options?: { value: string; label: string }[];
 }
 
@@ -59,6 +61,8 @@ export default function SuggestEditModal({
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Field keys whose input is incomplete (e.g. "Has outlets" with no codes); submitting is blocked while any exist.
+  const [incompleteFields, setIncompleteFields] = useState<Set<string>>(new Set());
 
   const supportsPhotos = targetTable === "ro_profiles";
 
@@ -108,12 +112,16 @@ export default function SuggestEditModal({
       return;
     }
 
-    const proposedChanges: Record<string, unknown> =
-      targetRecordId === null
-        ? { ...draft }
-        : Object.fromEntries(
-            Object.entries(draft).filter(([key, value]) => value !== (currentValues[key] ?? (Array.isArray(value) ? [] : "")))
-          );
+    const { changes: proposedChanges, blocked } = proposedChangesFor(
+      draft,
+      currentValues,
+      targetRecordId === null,
+      incompleteFields
+    );
+    if (blocked.length > 0) {
+      setError("Please complete the incomplete field before submitting.");
+      return;
+    }
 
     setSubmitting(true);
 
@@ -206,6 +214,26 @@ export default function SuggestEditModal({
               />
             );
           }
+          if (f.type === "tenants") {
+            return (
+              <TenantsField
+                key={f.key}
+                label={f.label}
+                value={(value as string[] | null | undefined) ?? null}
+                onChange={(v) => set(f.key, v)}
+                onIncompleteChange={(incomplete) =>
+                  setIncompleteFields((prev) => {
+                    if (prev.has(f.key) === incomplete) return prev;
+                    const next = new Set(prev);
+                    if (incomplete) next.add(f.key);
+                    else next.delete(f.key);
+                    return next;
+                  })
+                }
+                placeholder="A3.3, A4.1"
+              />
+            );
+          }
           if (f.type === "select") {
             return (
               <SelectField
@@ -271,7 +299,7 @@ export default function SuggestEditModal({
         </button>
         <button
           onClick={submit}
-          disabled={submitting}
+          disabled={submitting || incompleteFields.size > 0}
           className="text-sm px-3 py-1.5 rounded-sm bg-navy text-white disabled:opacity-50"
         >
           {submitting ? "Submitting…" : "Submit for review"}

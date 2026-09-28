@@ -5,6 +5,7 @@ import { Camera, LayoutTemplate, Pencil } from "lucide-react";
 import type { RoProfile } from "@/lib/types";
 import { SQM_TO_SQFT } from "@/lib/scoring";
 import { TAXONOMY_BY_CODE } from "@/lib/taxonomy";
+import { existingTenantsSummary } from "@/lib/existingTenants";
 import SpaceAllocationBar from "./SpaceAllocationBar";
 import PhotosModal from "./PhotosModal";
 import LayoutModal from "./LayoutModal";
@@ -49,7 +50,7 @@ export default function OutletSummaryCard({ outlet, omcName, omcs }: OutletSumma
       { key: "ownership", label: "Ownership", type: "text" },
       { key: "plot_sqm", label: "Plot area (sqm)", type: "number" },
       { key: "vacant_sqm", label: "Vacant area (sqm)", type: "number" },
-      { key: "existing_tenants", label: "Existing tenant format codes", type: "array" },
+      { key: "existing_tenants", label: "Existing outlets", type: "tenants" },
       { key: "layout_diagram_url", label: "Layout diagram URL", type: "text" },
       { key: "fuel_volume_kl_monthly", label: "Fuel volume (KL/month)", type: "number" },
       { key: "vehicle_mix_2w_pct", label: "2-wheeler mix %", type: "number" },
@@ -64,7 +65,7 @@ export default function OutletSummaryCard({ outlet, omcName, omcs }: OutletSumma
   const vacantSqft = outlet.vacant_sqm !== null ? outlet.vacant_sqm * SQM_TO_SQFT : null;
   const committedSqft = plotSqft !== null && vacantSqft !== null ? plotSqft - vacantSqft : null;
 
-  const tenantNames = outlet.existing_tenants.map((code) => TAXONOMY_BY_CODE[code]?.format ?? code);
+  const tenants = existingTenantsSummary(outlet.existing_tenants, (code) => TAXONOMY_BY_CODE[code]?.format ?? code);
 
   return (
     <div className="bg-surface rounded-md shadow-card border border-border p-6">
@@ -102,9 +103,13 @@ export default function OutletSummaryCard({ outlet, omcName, omcs }: OutletSumma
         <Stat label="Available space" value={vacantSqft} unit="sq.ft." />
         <div>
           <p className="text-sm text-muted">Existing outlets</p>
-          <p className="font-serif-display font-semibold text-2xl mt-0.5">{outlet.existing_tenants.length}</p>
-          {tenantNames.length > 0 && (
-            <p className="text-xs text-muted mt-1">{tenantNames.join(", ")}</p>
+          {tenants.known ? (
+            <>
+              <p className="font-serif-display font-semibold text-2xl mt-0.5">{tenants.count}</p>
+              {tenants.names.length > 0 && <p className="text-xs text-muted mt-1">{tenants.names.join(", ")}</p>}
+            </>
+          ) : (
+            <p className="text-muted italic mt-0.5">Not available</p>
           )}
         </div>
       </div>

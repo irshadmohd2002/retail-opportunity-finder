@@ -11,7 +11,8 @@ export interface RoProfile {
   ownership: string | null;
   plot_sqm: number | null;
   vacant_sqm: number | null;
-  existing_tenants: string[];
+  /** null = unknown, [] = confirmed none. See lib/existingTenants.ts. */
+  existing_tenants: string[] | null;
   fuel_volume_kl_monthly: number | null;
   vehicle_mix_2w_pct: number | null;
   vehicle_mix_4w_pct: number | null;
@@ -68,6 +69,21 @@ export interface FormatEconomics {
   updated_at: string;
   /** 1 (fast) - 3 (slow) placeholder used only by the "Fastest to launch" lens. */
   speed_to_launch_tier: number | null;
+}
+
+export type SignalQuality = "strong" | "borderline" | "thin" | "none";
+
+/** Per-outlet, per-format competitor data (Foursquare OS Places; may be stale or incomplete). */
+export interface RoFormatCompetition {
+  ro_id: string;
+  format_code: string;
+  count_1km: number | null;
+  count_2km: number | null;
+  expected_count_2km: number | null;
+  gap_score: number | null;
+  naive_whitespace_score: number | null;
+  signal_quality: SignalQuality | null;
+  border_risk: boolean | null;
 }
 
 export interface BrandPartnership {

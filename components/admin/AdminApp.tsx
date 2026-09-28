@@ -9,10 +9,12 @@ import BrandPartnershipsAdmin from "./BrandPartnershipsAdmin";
 import PhotosAdmin from "./PhotosAdmin";
 import ThemeSettingsAdmin from "./ThemeSettingsAdmin";
 import SubmissionsAdmin from "./SubmissionsAdmin";
+import CompetitionAdmin from "./CompetitionAdmin";
 
 const TABS = [
   { key: "outlets", label: "Outlets" },
   { key: "formats", label: "Format economics" },
+  { key: "competition", label: "Competition data" },
   { key: "brands", label: "Brand partnerships" },
   { key: "photos", label: "Photos" },
   { key: "theme", label: "Theme" },
@@ -72,6 +74,7 @@ export default function AdminApp() {
 
       {tab === "outlets" && <OutletsAdmin />}
       {tab === "formats" && <FormatEconomicsAdmin />}
+      {tab === "competition" && <CompetitionAdmin />}
       {tab === "brands" && <BrandPartnershipsAdmin />}
       {tab === "photos" && <PhotosAdmin />}
       {tab === "theme" && <ThemeSettingsAdmin />}

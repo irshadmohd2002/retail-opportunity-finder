@@ -6,12 +6,11 @@ import Modal from "./Modal";
 import SourcedValue from "./SourcedValue";
 import SuggestEditModal, { type SuggestEditField } from "./SuggestEditModal";
 import { formatInrRange, formatSqft, formatPct, formatMonths } from "@/lib/format";
-import type { FormatEconomics } from "@/lib/types";
-import type { TaxonomyFormat } from "@/lib/taxonomy";
+import { competitionDisplay } from "@/lib/formatListState";
+import type { ScoredFormat } from "@/lib/scoring";
 
 interface FormatDeepDiveModalProps {
-  taxonomy: TaxonomyFormat;
-  economics: FormatEconomics | null;
+  scored: ScoredFormat;
   onClose: () => void;
 }
 
@@ -34,8 +33,10 @@ const FORMAT_SUGGEST_FIELDS: SuggestEditField[] = [
   { key: "notes", label: "Notes", type: "textarea" },
 ];
 
-export default function FormatDeepDiveModal({ taxonomy, economics, onClose }: FormatDeepDiveModalProps) {
+export default function FormatDeepDiveModal({ scored, onClose }: FormatDeepDiveModalProps) {
+  const { taxonomy, economics } = scored;
   const [suggesting, setSuggesting] = useState(false);
+  const competition = competitionDisplay(scored);
 
   return (
     <Modal title={taxonomy.format} subtitle={taxonomy.theme} onClose={onClose}>
@@ -96,6 +97,23 @@ export default function FormatDeepDiveModal({ taxonomy, economics, onClose }: Fo
       </div>
 
       {economics?.notes && <p className="text-sm text-muted mt-6 border-t border-border pt-4">{economics.notes}</p>}
+
+      {competition.competitorLine && (
+        <div className="mt-6 border-t border-border pt-4">
+          <p className="text-sm text-muted">Competition nearby</p>
+          <p className="text-sm mt-1">{competition.competitorLine}</p>
+          <p className="text-sm mt-1">
+            <span className="text-muted">Whitespace: </span>
+            {competition.whitespaceLabel === "no data" ? (
+              <span className="italic text-muted">no data</span>
+            ) : (
+              `${competition.whitespaceLabel} / 100`
+            )}
+          </p>
+          {competition.caveat && <p className="text-xs text-muted mt-1">{competition.caveat}</p>}
+          {competition.sourceNote && <p className="text-xs text-muted italic mt-1">{competition.sourceNote}</p>}
+        </div>
+      )}
 
       <button
         onClick={() => setSuggesting(true)}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Submission, SubmissionTargetTable } from "@/lib/types";
+import { existingTenantsLabel } from "@/lib/existingTenants";
 
 const TARGET_LABEL: Record<SubmissionTargetTable, string> = {
   ro_profiles: "Outlet",
@@ -25,6 +26,11 @@ interface EnrichedSubmission {
   submission: Submission;
   current: Record<string, unknown> | null;
   photoPreviews: PhotoPreview[];
+}
+
+// existing_tenants is tri-state (null unknown / [] confirmed none), so it is labelled rather than shown as "—".
+function isTenants(submission: Submission, key: string): boolean {
+  return submission.target_table === "ro_profiles" && key === "existing_tenants";
 }
 
 function suggestedPhotosOf(submission: Submission): string[] {
@@ -240,9 +246,19 @@ export default function SubmissionsAdmin({ onCountChange }: { onCountChange?: (c
                         <tr key={key} className="border-b border-border last:border-b-0">
                           <td className="py-1 pr-2 text-muted">{key}</td>
                           <td className="py-1 pr-2 text-muted">
-                            {isNew ? "—" : String(current?.[key] ?? "—")}
+                            {isNew
+                              ? "—"
+                              : isTenants(submission, key)
+                                ? existingTenantsLabel(current?.[key])
+                                : String(current?.[key] ?? "—")}
                           </td>
-                          <td className="py-1">{Array.isArray(value) ? value.join(", ") || "—" : String(value ?? "—")}</td>
+                          <td className="py-1">
+                            {isTenants(submission, key)
+                              ? existingTenantsLabel(value)
+                              : Array.isArray(value)
+                                ? value.join(", ") || "—"
+                                : String(value ?? "—")}
+                          </td>
                         </tr>
                       ))}
                   </tbody>

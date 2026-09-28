@@ -1,3 +1,8 @@
+"use client";
+
+import { useEffect, useId, useRef, useState } from "react";
+import { resolveTenantsEdit, tenantsMode, type TenantsMode } from "@/lib/existingTenants";
+
 interface FieldWrapProps {
   label: string;
   children: React.ReactNode;
@@ -144,6 +149,82 @@ export function ArrayField({
         }
       />
     </FieldWrap>
+  );
+}
+
+const TENANT_MODES: { mode: TenantsMode; label: string }[] = [
+  { mode: "unknown", label: "Unknown" },
+  { mode: "none", label: "None confirmed" },
+  { mode: "has", label: "Has outlets" },
+];
+
+/**
+ * Three-way control for a nullable array: Unknown (null) / None confirmed ([]) /
+ * Has outlets (codes). Emits only on user interaction, so merely opening a form
+ * never changes the stored value.
+ */
+export function TenantsField({
+  label,
+  value,
+  onChange,
+  onIncompleteChange,
+  placeholder,
+}: {
+  label: string;
+  value: string[] | null;
+  onChange: (v: string[] | null) => void;
+  /** Called with true while "Has outlets" is selected with no codes; the parent must block saving. */
+  onIncompleteChange?: (incomplete: boolean) => void;
+  placeholder?: string;
+}) {
+  const groupName = useId();
+  const [mode, setMode] = useState<TenantsMode>(() => tenantsMode(value));
+  const [codesText, setCodesText] = useState(() => (value ?? []).join(", "));
+  const [error, setError] = useState<string | null>(null);
+  // Clear the parent's "incomplete" flag when the field goes away (e.g. the form is cancelled).
+  const incompleteCallback = useRef(onIncompleteChange);
+  useEffect(() => {
+    incompleteCallback.current = onIncompleteChange;
+  });
+  useEffect(() => () => incompleteCallback.current?.(false), []);
+
+  function update(nextMode: TenantsMode, nextText: string) {
+    setMode(nextMode);
+    setCodesText(nextText);
+    const edit = resolveTenantsEdit(nextMode, nextText);
+    setError(edit.ok ? null : edit.error);
+    onIncompleteChange?.(!edit.ok);
+    // An incomplete choice is not emitted, so it can never reach the draft as [] ("None confirmed").
+    if (edit.ok) onChange(edit.value);
+  }
+
+  return (
+    <div className="flex flex-col gap-1 text-sm sm:col-span-2">
+      <span className="text-muted">{label}</span>
+      <div className="flex flex-wrap items-center gap-4">
+        {TENANT_MODES.map((m) => (
+          <label key={m.mode} className="flex items-center gap-1.5">
+            <input type="radio" name={groupName} checked={mode === m.mode} onChange={() => update(m.mode, codesText)} />
+            <span>{m.label}</span>
+          </label>
+        ))}
+      </div>
+      {mode === "has" && (
+        <input
+          type="text"
+          className={inputClass}
+          placeholder={placeholder}
+          aria-label={`${label} (comma-separated codes)`}
+          value={codesText}
+          onChange={(e) => update("has", e.target.value)}
+        />
+      )}
+      {error && (
+        <p className="text-xs" style={{ color: "var(--navy)" }}>
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import type { RoProfile, FormatEconomics, BrandPartnership } from "@/lib/types";
+import type { RoProfile, FormatEconomics, BrandPartnership, RoFormatCompetition } from "@/lib/types";
 import { haversineKm, CATCHMENT_RADIUS_KM } from "@/lib/geo";
 import OutletSummaryCard from "@/components/OutletSummaryCard";
 import FormatList from "@/components/FormatList";
@@ -15,14 +15,22 @@ const NEARBY_LIMIT = 10;
 export default async function OutletPage({ params }: OutletPageProps) {
   const { id } = await params;
 
-  const [{ data: outlet }, { data: economics }, { data: brands }, { data: allOutlets }, { data: omcs }] =
-    await Promise.all([
-      supabase.from("ro_profiles").select("*").eq("id", id).maybeSingle(),
-      supabase.from("format_economics").select("*"),
-      supabase.from("brand_partnerships").select("*"),
-      supabase.from("ro_profiles").select("id, name, omc_id, latitude, longitude"),
-      supabase.from("omcs").select("id, name"),
-    ]);
+  // A failed competition read (e.g. table not created yet) yields no rows, i.e. legacy whitespace_index scoring.
+  const [
+    { data: outlet },
+    { data: economics },
+    { data: brands },
+    { data: allOutlets },
+    { data: omcs },
+    { data: competition },
+  ] = await Promise.all([
+    supabase.from("ro_profiles").select("*").eq("id", id).maybeSingle(),
+    supabase.from("format_economics").select("*"),
+    supabase.from("brand_partnerships").select("*"),
+    supabase.from("ro_profiles").select("id, name, omc_id, latitude, longitude"),
+    supabase.from("omcs").select("id, name"),
+    supabase.from("ro_format_competition").select("*").eq("ro_id", id),
+  ]);
 
   if (!outlet) notFound();
 
@@ -56,6 +64,7 @@ export default async function OutletPage({ params }: OutletPageProps) {
         outlet={outlet as RoProfile}
         economics={(economics ?? []) as FormatEconomics[]}
         brands={(brands ?? []) as BrandPartnership[]}
+        competition={(competition ?? []) as RoFormatCompetition[]}
       />
       {nearby && (
         <NearbyOutlets
