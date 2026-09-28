@@ -25,7 +25,10 @@ interface FormatRowProps {
 export default function FormatRow({ scored, brands, onOpenFormat, onOpenBrand, showShortfall }: FormatRowProps) {
   const { taxonomy, economics, vacantSqft, shortfallSqft } = scored;
   const Icon = FORMAT_ICONS[taxonomy.code];
-  const spaceUsedPct = economics?.space_sqft ? (economics.space_sqft / vacantSqft) * 100 : null;
+  const spaceUsedPct =
+    economics?.space_sqft && vacantSqft !== null && vacantSqft > 0
+      ? (economics.space_sqft / vacantSqft) * 100
+      : null;
 
   return (
     <tr onClick={onOpenFormat} className="cursor-pointer hover:bg-bg border-b border-border last:border-b-0">

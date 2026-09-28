@@ -133,6 +133,46 @@ describe("Stage 1: feasibility gate", () => {
   it("converts sqm to sqft using the documented constant", () => {
     expect(SQM_TO_SQFT).toBeCloseTo(10.7639, 4);
   });
+
+  it("marks every format unknown -- not feasible, not zero -- when vacant_sqm is null", () => {
+    const outlet = makeOutlet({ vacant_sqm: null, plot_sqm: null });
+    const scored = scoreFormatsForOutlet(outlet, {
+      "A1.3": makeEconomics("A1.3", { space_sqft: 500 }),
+    });
+    expect(scored.length).toBeGreaterThan(0);
+    for (const f of scored) {
+      expect(f.vacantSqft).toBeNull();
+      expect(f.ratio).toBeNull();
+      expect(f.status).toBe("unknown");
+      expect(f.shortfallSqft).toBeNull();
+      expect(f.score).toBeNull();
+    }
+  });
+
+  it("treats vacant_sqm of 0 as a real zero (not_feasible), distinct from null", () => {
+    const outlet = makeOutlet({ vacant_sqm: 0 });
+    const scored = scoreFormatsForOutlet(outlet, {
+      "A1.3": makeEconomics("A1.3", { space_sqft: 500 }),
+    });
+    expect(scored.find((f) => f.taxonomy.code === "A1.3")!.status).toBe("not_feasible");
+  });
+
+  it("marks a format unknown when its own space_sqft is missing", () => {
+    const outlet = makeOutlet({ vacant_sqm: 100 });
+    const scored = scoreFormatsForOutlet(outlet, {
+      "A1.3": makeEconomics("A1.3", { space_sqft: null }),
+    });
+    expect(scored.find((f) => f.taxonomy.code === "A1.3")!.status).toBe("unknown");
+  });
+
+  it("never yields NaN or Infinity for any numeric output when inputs are null", () => {
+    const outlet = makeOutlet({ vacant_sqm: null, plot_sqm: null, demand_index: null, whitespace_index: null });
+    for (const f of scoreFormatsForOutlet(outlet, economicsByCode)) {
+      for (const n of [f.vacantSqft, f.ratio, f.shortfallSqft, f.score]) {
+        expect(n === null || Number.isFinite(n)).toBe(true);
+      }
+    }
+  });
 });
 
 describe("Stage 2: cannibalization exclusion", () => {
@@ -182,8 +222,30 @@ describe("Stage 4: tiering", () => {
       tiers.priority.length +
       tiers.alsoFeasible.length +
       tiers.worthExploring.length +
-      tiers.limitedFit.length;
+      tiers.limitedFit.length +
+      tiers.unknownFit.length;
     expect(totalTiered).toBe(scored.length);
+  });
+
+  it("puts every format in unknownFit -- none in feasible or not-feasible tiers -- when vacant_sqm is null", () => {
+    const outlet = makeOutlet({ vacant_sqm: null });
+    const allEco = Object.fromEntries(TAXONOMY.map((t) => [t.code, makeEconomics(t.code, { space_sqft: 100 })]));
+    const scored = scoreFormatsForOutlet(outlet, allEco);
+    const tiers = tierFormats(scored);
+    expect(tiers.unknownFit).toHaveLength(scored.length);
+    expect(tiers.priority).toHaveLength(0);
+    expect(tiers.alsoFeasible).toHaveLength(0);
+    expect(tiers.worthExploring).toHaveLength(0);
+    expect(tiers.limitedFit).toHaveLength(0);
+  });
+
+  it("does not put unscored feasible formats in Priority when demand/whitespace is missing", () => {
+    const outlet = makeOutlet({ vacant_sqm: 1000, demand_index: null, whitespace_index: null });
+    const allEco = Object.fromEntries(TAXONOMY.map((t) => [t.code, makeEconomics(t.code, { space_sqft: 100 })]));
+    const tiers = tierFormats(scoreFormatsForOutlet(outlet, allEco));
+    expect(tiers.priority).toHaveLength(0);
+    expect(tiers.alsoFeasible.length).toBeGreaterThan(0);
+    expect(tiers.alsoFeasible.every((f) => f.status === "feasible" && f.score === null)).toBe(true);
   });
 });
 

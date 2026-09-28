@@ -3,7 +3,15 @@ import type { RoProfile, FormatEconomics, BrandPartnership } from "./types";
 
 export const SQM_TO_SQFT = 10.7639;
 
-export type FeasibilityStatus = "feasible" | "marginal" | "not_feasible";
+/**
+ * "unknown" means the inputs to the feasibility gate (outlet vacant area, or
+ * the format's own space requirement) are missing. It is deliberately a fourth
+ * status rather than a default to not_feasible: absent data is not evidence of
+ * a poor fit.
+ */
+export type FeasibilityStatus = "feasible" | "marginal" | "not_feasible" | "unknown";
+
+export const UNKNOWN_SPACE_LABEL = "Unknown - space data missing";
 
 export type PriorityLens =
   | "best_overall"
@@ -14,9 +22,9 @@ export type PriorityLens =
 export interface ScoredFormat {
   taxonomy: TaxonomyFormat;
   economics: FormatEconomics | null;
-  /** Outlet vacant space, converted once, shared by every format. */
-  vacantSqft: number;
-  /** vacantSqft / format.space_sqft. Null when space_sqft is unknown. */
+  /** Outlet vacant space, converted once, shared by every format. Null when the outlet's vacant_sqm is unknown. */
+  vacantSqft: number | null;
+  /** vacantSqft / format.space_sqft. Null when either side is unknown. */
   ratio: number | null;
   status: FeasibilityStatus;
   /** Positive sq.ft. still needed to reach the format's space threshold. Only meaningful for marginal/not_feasible. */
@@ -61,7 +69,8 @@ export function scoreFormatsForOutlet(
   outlet: RoProfile,
   economicsByCode: Record<string, FormatEconomics>
 ): ScoredFormat[] {
-  const vacantSqft = (outlet.vacant_sqm ?? 0) * SQM_TO_SQFT;
+  // A missing vacant_sqm is unknown, not zero -- never coerce it into a number.
+  const vacantSqft = outlet.vacant_sqm == null ? null : outlet.vacant_sqm * SQM_TO_SQFT;
   const excluded = new Set(outlet.existing_tenants ?? []);
 
   return TAXONOMY.filter((f) => isEligibleForOutletType(f, outlet.type))
@@ -70,10 +79,11 @@ export function scoreFormatsForOutlet(
       const economics = economicsByCode[taxonomy.code] ?? null;
       const spaceSqft = economics?.space_sqft ?? null;
 
-      const ratio = spaceSqft && spaceSqft > 0 ? vacantSqft / spaceSqft : null;
-      const status: FeasibilityStatus = ratio === null ? "not_feasible" : statusFromRatio(ratio);
+      const ratio =
+        vacantSqft !== null && spaceSqft !== null && spaceSqft > 0 ? vacantSqft / spaceSqft : null;
+      const status: FeasibilityStatus = ratio === null ? "unknown" : statusFromRatio(ratio);
       const shortfallSqft =
-        ratio !== null && ratio < 1.0 && spaceSqft !== null
+        ratio !== null && ratio < 1.0 && vacantSqft !== null && spaceSqft !== null
           ? Math.round(spaceSqft - vacantSqft)
           : null;
 
@@ -95,6 +105,8 @@ export interface TieredFormats {
   alsoFeasible: ScoredFormat[];
   worthExploring: ScoredFormat[];
   limitedFit: ScoredFormat[];
+  /** Feasibility could not be computed (space data missing). Never ranked. */
+  unknownFit: ScoredFormat[];
 }
 
 /**
@@ -107,6 +119,7 @@ export function tierFormats(scored: ScoredFormat[]): TieredFormats {
   const feasible = scored.filter((f) => f.status === "feasible");
   const marginal = scored.filter((f) => f.status === "marginal");
   const notFeasible = scored.filter((f) => f.status === "not_feasible");
+  const unknownFit = scored.filter((f) => f.status === "unknown");
 
   const byScoreDesc = (a: ScoredFormat, b: ScoredFormat) => (b.score ?? -1) - (a.score ?? -1);
   const feasibleRanked = [...feasible].sort(byScoreDesc);
@@ -115,6 +128,10 @@ export function tierFormats(scored: ScoredFormat[]): TieredFormats {
   const themeCounts = new Map<string, number>();
   for (const f of feasibleRanked) {
     if (priority.length >= 4) break;
+    // Priority means top-*scoring*. A feasible format with no score (demand or
+    // whitespace index missing) has nothing to rank on, so it stays in
+    // "also feasible" instead of being picked in arbitrary order.
+    if (f.score === null) continue;
     const theme = f.taxonomy.theme;
     const count = themeCounts.get(theme) ?? 0;
     if (count >= 2) continue;
@@ -130,6 +147,7 @@ export function tierFormats(scored: ScoredFormat[]): TieredFormats {
     alsoFeasible,
     worthExploring: [...marginal].sort(byScoreDesc),
     limitedFit: [...notFeasible].sort(byScoreDesc),
+    unknownFit,
   };
 }
 
@@ -165,6 +183,7 @@ export function sortTiersByLens(tiers: TieredFormats, lens: PriorityLens): Tiere
     alsoFeasible: sortByLens(tiers.alsoFeasible, lens),
     worthExploring: sortByLens(tiers.worthExploring, lens),
     limitedFit: sortByLens(tiers.limitedFit, lens),
+    unknownFit: sortByLens(tiers.unknownFit, lens),
   };
 }
 
